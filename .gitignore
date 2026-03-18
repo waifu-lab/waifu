@@ -1,0 +1,7 @@
+__pycache__/
+
+/hai
+.DS_Store
+.env
+.pytest_cache
+/docs
