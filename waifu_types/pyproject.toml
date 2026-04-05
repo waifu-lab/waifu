@@ -1,0 +1,15 @@
+[project]
+name = "waifu_types"
+version = "0.1.0"
+description = "Shared types, ABCs and Protocols for the waifu ecosystem"
+authors = [{ name = "phillychi3", email = "phillychi3@gmail.com" }]
+requires-python = ">=3.10"
+license = { text = "MIT License" }
+dependencies = ["pydantic>=2.0"]
+
+[build-system]
+requires = ["uv_build>=0.11.2,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""

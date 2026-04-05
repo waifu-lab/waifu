@@ -2,19 +2,26 @@
 name = "waifu"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "phillychi3",email = "phillychi3@gmail.com"}
-]
-license = {text = "MIT License"}
-readme = "README.md"
+authors = [{ name = "phillychi3", email = "phillychi3@gmail.com" }]
 requires-python = ">=3.10"
-dependencies = [
+readme = "README.md"
+license = { text = "MIT License" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
-
+dependencies = ["fastapi (>=0.135.1,<0.136.0)", "waifu_types"]
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.11.2,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
 
 [tool.ruff]
 lint.select = ["ASYNC", "ARG", "B", "C", "C4", "E", "F", "Q", "W", "I"]
@@ -24,3 +31,9 @@ lint.ignore = ["F401"]
 lint.unfixable = ["F401"]
 
 line-length = 120
+
+[tool.uv.workspace]
+members = ["waifu_sdk", "waifu_types"]
+
+[tool.uv.sources]
+waifu_types = { workspace = true }
