@@ -12,9 +12,9 @@ if TYPE_CHECKING:
 
 class AgentRunner:
     """
-    包裝 shuvi.Agent，注入 streaming callback。
+    包裝 shuvi.Agent，注入 streaming callback
 
-    使用 DI：ProviderText 由外部（Waifu）注入。
+    使用 DI：ProviderText 由外部（Waifu）注入
     """
 
     def __init__(self, provider: "ProviderText") -> None:

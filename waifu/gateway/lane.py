@@ -1,18 +1,22 @@
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable, Dict, Tuple
+from typing import Awaitable, Callable, Dict, Tuple
+
+from waifu_types import IncomingRequest
 
 logger = logging.getLogger(__name__)
 
+_Handler = Callable[[IncomingRequest], Awaitable[None]]
+
 
 class Lane:
-    """Per-conversation serial processing queue — 確保同一對話空間串行處理。"""
+    """Per-conversation serial processing queue — 確保同一對話空間串行處理"""
 
     def __init__(self, max_size: int = 10):
-        self._queue: asyncio.Queue[Tuple[Any, Callable[[Any], Awaitable[None]]]] = asyncio.Queue(maxsize=max_size)
+        self._queue: asyncio.Queue[Tuple[IncomingRequest, _Handler]] = asyncio.Queue(maxsize=max_size)
         self._task: asyncio.Task | None = None
 
-    async def enqueue(self, item: Any, handler: Callable[[Any], Awaitable[None]]) -> None:
+    async def enqueue(self, item: IncomingRequest, handler: _Handler) -> None:
         await self._queue.put((item, handler))
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._drain())
@@ -29,7 +33,7 @@ class Lane:
 
 
 class LaneManager:
-    """管理每個 conversation_id 對應的 Lane 實例。"""
+    """管理每個 conversation_id 對應的 Lane 實例"""
 
     def __init__(self, max_queue_size: int = 10):
         self._lanes: Dict[str, Lane] = {}

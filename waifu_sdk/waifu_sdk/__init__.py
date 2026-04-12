@@ -1,5 +1,3 @@
-# waifu-sdk: 純 re-export 層，讓第三方插件只需安裝此套件
-# 實際定義都在 waifu-types（pydantic only，無重依賴）
 from waifu_types import (
     Attachment,
     BaseGatewayAdapter,
@@ -7,11 +5,14 @@ from waifu_types import (
     BaseMCPAdapter,
     BasePlugin,
     ConversationMode,
+    ConversationService,
     HookContext,
     IncomingRequest,
     OutgoingResponse,
     PluginContext,
     Sender,
+    SessionService,
+    VoiceServiceProtocol,
 )
 
 __all__ = [
@@ -26,4 +27,7 @@ __all__ = [
     "Attachment",
     "ConversationMode",
     "Sender",
+    "ConversationService",
+    "SessionService",
+    "VoiceServiceProtocol",
 ]

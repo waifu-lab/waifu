@@ -24,7 +24,7 @@ class Session:
 
 
 class SessionManager:
-    """管理所有 conversation 的 Session，支援 TTL 自動過期。"""
+    """管理所有 conversation 的 Session，支援 TTL 自動過期"""
 
     def __init__(self, ttl: int = 3600):
         self._sessions: Dict[str, Session] = {}

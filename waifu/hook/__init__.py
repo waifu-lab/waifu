@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class HookRegistry:
-    """管理所有 Hook 的注冊與排序。"""
+    """管理所有 Hook 的注冊與排序"""
 
     def __init__(self) -> None:
         self._hooks: List[BaseHook] = []
@@ -25,7 +25,7 @@ class HookRegistry:
 
 
 class HookPipeline:
-    """依序執行 HookRegistry 中所有 Hook 的 pre/post。"""
+    """依序執行 HookRegistry 中所有 Hook 的 pre/post"""
 
     def __init__(self, registry: HookRegistry) -> None:
         self._registry = registry
@@ -49,4 +49,15 @@ class HookPipeline:
         return ctx
 
 
-__all__ = ["HookRegistry", "HookPipeline"]
+from .builtin import EmotionHook, InMemoryStore, LoggingHook, MemoryHook, RateLimitHook, TTSHook
+
+__all__ = [
+    "HookRegistry",
+    "HookPipeline",
+    "RateLimitHook",
+    "MemoryHook",
+    "InMemoryStore",
+    "EmotionHook",
+    "LoggingHook",
+    "TTSHook",
+]

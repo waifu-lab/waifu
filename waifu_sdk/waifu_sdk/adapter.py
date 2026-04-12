@@ -12,10 +12,10 @@ class BaseGatewayAdapter(ABC):
 
     @abstractmethod
     async def start(self, core: Any) -> None:
-        """掛載到 GatewayCore，開始監聽事件。"""
+        """掛載到 GatewayCore，開始監聽事件"""
         ...
 
     @abstractmethod
     async def send(self, response: OutgoingResponse) -> None:
-        """將 OutgoingResponse 傳送回對應的平台。"""
+        """將 OutgoingResponse 傳送回對應的平台"""
         ...

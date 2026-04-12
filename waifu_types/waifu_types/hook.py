@@ -3,18 +3,20 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from .types import IncomingRequest
+from waifu_types.session import BaseSession
+from waifu_types.trace import BaseExecutionTrace
+from waifu_types.types import IncomingRequest
 
 
 class HookContext(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     request: IncomingRequest
-    session: Any  # waifu.gateway.session.Session
+    session: BaseSession
     messages: List[Dict[str, Any]]  # 可被 hook 修改的對話歷史
     metadata: Dict[str, Any] = {}
     response: Optional[str] = None  # post hook 時有值
-    trace: Optional[Any] = None  # shuvi.ExecutionTrace
+    trace: Optional[BaseExecutionTrace] = None
     events: List[Dict[str, Any]] = []  # 副作用（EmotionHook 寫入）
     abort: bool = False  # True 則跳過 Agent
 

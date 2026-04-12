@@ -4,6 +4,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from waifu_types.trace import BaseExecutionTrace
+
 
 class ConversationMode(str, Enum):
     session = "session"  # WebSocket 1:1，以 session token 恢復歷史
@@ -33,6 +35,7 @@ class IncomingRequest(BaseModel):
     content: str
     attachments: List[Attachment] = []
     metadata: Dict[str, Any] = {}
+    live2d: bool = False  # True 時啟用情緒解析、TTS、lipsync 等 Live2D 功能
     # reply_fn(response: OutgoingResponse) 或 reply_fn(chunk=str) for streaming
     reply_fn: Callable
 
@@ -45,6 +48,6 @@ class OutgoingResponse(BaseModel):
     source: str
     content: str
     chunks: List[str] = []
-    trace: Optional[Any] = None  # shuvi.ExecutionTrace
+    trace: Optional[BaseExecutionTrace] = None
     events: List[Dict[str, Any]] = []  # Live2D emotion/action
     reply_fn: Callable
