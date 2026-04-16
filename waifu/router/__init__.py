@@ -7,6 +7,7 @@ from .health import router as health_router
 if TYPE_CHECKING:
     from waifu.gateway.adapters.http import HTTPAdapter
     from waifu.gateway.adapters.websocket import WebSocketAdapter
+    from waifu.gateway.adapters.waifu_node import WaifuNodeAdapter
     from waifu.plugin import PluginManager
 
 
@@ -15,6 +16,7 @@ def include_routers(
     *,
     ws_adapter: "WebSocketAdapter | None" = None,
     http_adapter: "HTTPAdapter | None" = None,
+    waifu_node_adapter: "WaifuNodeAdapter | None" = None,
     plugin_manager: "PluginManager | None" = None,
 ) -> None:
     """將所有路由掛載到 FastAPI app
@@ -22,6 +24,7 @@ def include_routers(
     from .chat import make_chat_router
     from .plugin import make_plugin_router
     from .ws import make_ws_router
+    from .waifu_node import make_waifu_node_router
 
     app.include_router(health_router)
 
@@ -30,6 +33,9 @@ def include_routers(
 
     if http_adapter is not None:
         app.include_router(make_chat_router(http_adapter))
+
+    if waifu_node_adapter is not None:
+        app.include_router(make_waifu_node_router(waifu_node_adapter))
 
     if plugin_manager is not None:
         app.include_router(make_plugin_router(plugin_manager))

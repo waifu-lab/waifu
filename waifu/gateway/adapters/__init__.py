@@ -1,7 +1,8 @@
 from .http import HTTPAdapter
 from .websocket import WebSocketAdapter
+from .waifu_node import WaifuNodeAdapter
 
-__all__ = ["WebSocketAdapter", "HTTPAdapter", "DiscordAdapter", "TelegramAdapter"]
+__all__ = ["WebSocketAdapter", "HTTPAdapter", "WaifuNodeAdapter", "DiscordAdapter", "TelegramAdapter"]
 
 
 def __getattr__(name: str) -> object:

@@ -21,10 +21,24 @@ async def _lifespan(app: FastAPI):
     waifu = Waifu(_config)
     waifu.mount(ws_adapter).mount(http_adapter)
 
+    # Waifu-Node：若 config 啟用則自動掛載
+    waifu_node_adapter = None
+    if _config.node is not None and _config.node.enabled:
+        from waifu.gateway.adapters import WaifuNodeAdapter
+        from waifu.plugin.builtin import WaifuNodePlugin
+
+        waifu_node_adapter = WaifuNodeAdapter(
+            token=_config.node.token,
+            invoke_timeout_ms=_config.node.invoke_timeout_ms,
+            ping_interval_s=_config.node.ping_interval_s,
+        )
+        await waifu.plugin(WaifuNodePlugin(waifu_node_adapter))
+
     include_routers(
         app,
         ws_adapter=ws_adapter,
         http_adapter=http_adapter,
+        waifu_node_adapter=waifu_node_adapter,
         plugin_manager=waifu.plugin_manager,
     )
 
