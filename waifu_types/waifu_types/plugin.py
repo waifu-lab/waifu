@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, runtime_checkable
 
 from waifu_types.services import ConversationService, SessionService, VoiceServiceProtocol
 
@@ -46,6 +46,9 @@ class BasePlugin(ABC):
     name: str
     version: str = "0.1.0"
     description: str = ""
+    registered_tools: List[str] = []
+    registered_hooks: List[str] = []
+    registered_mcps: List[str] = []
 
     @abstractmethod
     async def on_load(self, ctx: PluginContext) -> None:

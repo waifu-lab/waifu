@@ -18,12 +18,12 @@ class AgentRunner:
     """
 
     def __init__(self, provider: "ProviderText") -> None:
-        self._provider = provider
+        self.provider = provider
 
     async def run(self, ctx: HookContext, agent_input: AgentInput) -> AgentResult:
         agent = Agent(
             AgentConfig(
-                provider=self._provider,
+                provider=self.provider,
                 system_prompt=agent_input.system_prompt,
                 tools=agent_input.tools,
                 callbacks=AgentCallbacks(

@@ -14,6 +14,7 @@ class ContextConfig(BaseModel):
     system_prompt_template: str = "You are a helpful assistant."
     max_history_messages: int = 20
     history_strategy: Literal["sliding", "summary", "full"] = "sliding"
+    soul_content: Optional[str] = None  # soul.md content
 
 
 class ProviderConfig(BaseModel):
@@ -71,3 +72,4 @@ class WaifuConfig(BaseModel):
     provider: ProviderConfig
     voice: Optional[VoiceConfig] = None  # None = 語音功能停用
     node: Optional[WaifuNodeConfig] = None  # None = 停用 waifu-node
+    character: Optional[str] = None  # character name

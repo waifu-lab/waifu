@@ -52,6 +52,18 @@ class AppPaths:
     def soul_dir(self) -> Path:
         return self.data_dir / "soul"
 
+    @property
+    def characters_dir(self) -> Path:
+        return self.data_dir / "characters"
+
+    @property
+    def memory_dir(self) -> Path:
+        return self.data_dir / "memory"
+
+    @property
+    def plugins_dir(self) -> Path:
+        return self.data_dir / "plugins"
+
     def ensure_dirs(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -59,6 +71,9 @@ class AppPaths:
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         self.mcp_dir.mkdir(parents=True, exist_ok=True)
         self.soul_dir.mkdir(parents=True, exist_ok=True)
+        self.characters_dir.mkdir(parents=True, exist_ok=True)
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.plugins_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def resolve(cls) -> "AppPaths":

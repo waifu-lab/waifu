@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from waifu_types import BaseHook, HookContext
+from waifu_types import BaseHook, ConversationMode, HookContext
 
 if TYPE_CHECKING:
     from waifu.voice.service import VoiceService
@@ -70,15 +70,16 @@ class MemoryHook(BaseHook):
     """
     對話歷史持久化 Hook
 
-    pre ：從外部 store 載入歷史，注入 ctx.messages
+    pre ：從外部 store 載入歷史，注入 ctx.messages；若 store 支援關係層，注入 ctx.metadata
     post：將本輪新訊息寫回 store
 
     store 介面（duck typing）：
         async def load(key: str) -> List[Dict]
         async def save(key: str, messages: List[Dict]) -> None
+        async def get_relationship(key: str) -> str  (optional)
 
     預設使用內建的 InMemoryStore（無持久化，重啟清空）
-    傳入 Redis / SQLite store 即可替換
+    傳入 FileMemoryStore / Redis / SQLite store 即可替換
     """
 
     name = "memory"
@@ -92,7 +93,11 @@ class MemoryHook(BaseHook):
         cid = ctx.request.conversation_id
         history = await self._store.load(cid)
         if history:
-            ctx.messages = history + ctx.messages
+            ctx.messages = list(history)
+
+        if hasattr(self._store, "get_relationship"):
+            await self._inject_relationship(ctx)
+
         return ctx
 
     async def post(self, ctx: HookContext) -> HookContext:
@@ -102,19 +107,27 @@ class MemoryHook(BaseHook):
         cid = ctx.request.conversation_id
         existing = await self._store.load(cid)
 
-        # 本輪新增：user 訊息 + assistant 回應
         new_messages: List[Dict[str, Any]] = [
             {"role": "user", "content": ctx.request.content},
             {"role": "assistant", "content": ctx.response},
         ]
         merged = (existing or []) + new_messages
 
-        # 滑動視窗：保留最近 max_history 條
         if len(merged) > self._max_history:
             merged = merged[-self._max_history :]
 
         await self._store.save(cid, merged)
         return ctx
+
+    async def _inject_relationship(self, ctx: HookContext) -> None:
+        """從 store 取得關係層，注入 ctx.metadata["relationship"]"""
+        if ctx.request.mode == ConversationMode.session:
+            return
+
+        direct_key = f"{ctx.request.source}:dm:{ctx.request.sender.user_id}"
+        relationship = await self._store.get_relationship(direct_key)
+        if relationship:
+            ctx.metadata["relationship"] = relationship
 
 
 class InMemoryStore:

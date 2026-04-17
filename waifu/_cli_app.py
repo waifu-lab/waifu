@@ -39,7 +39,10 @@ async def _lifespan(app: FastAPI):
         ws_adapter=ws_adapter,
         http_adapter=http_adapter,
         waifu_node_adapter=waifu_node_adapter,
-        plugin_manager=waifu.plugin_manager,
+        plugin_service=waifu.plugin_service,
+        mcp_service=waifu.mcp_service,
+        config_service=waifu.config_service,
+        character_service=waifu.character_service,
     )
 
     app.state.waifu = waifu

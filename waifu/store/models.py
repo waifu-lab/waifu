@@ -71,7 +71,76 @@ class CronRun(BaseModel):
         table_name = "cron_runs"
 
 
-_TABLES = [Conversation, Message, CronJob, CronRun]
+class PluginConfig(BaseModel):
+    id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = CharField(unique=True)  # 來自 metadata.json["name"]
+    plugin_name = CharField()  # plugins_dir 下的資料夾名稱
+    enabled = BooleanField(default=True)
+    config_json = TextField(default="{}")  # JSON dict，傳給 on_load
+    installed_at = DateTimeField(default=datetime.utcnow)
+
+    class Meta:
+        table_name = "plugin_configs"
+
+
+class MCPServer(BaseModel):
+    id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = CharField(unique=True)
+    type = CharField()  # "stdio" | "sse"
+    command = TextField(null=True)  # stdio: JSON array, e.g. '["npx","mcp-fs"]'
+    url = CharField(null=True)  # sse: http://...
+    enabled = BooleanField(default=True)
+    config_json = TextField(default="{}")
+
+    class Meta:
+        table_name = "mcp_servers"
+
+
+class AppConfig(BaseModel):
+    key = CharField(primary_key=True)  # e.g. "provider.model"
+    value = TextField()  # JSON-encoded value
+    updated_at = DateTimeField(default=datetime.utcnow)
+
+    class Meta:
+        table_name = "app_config"
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+class Character(BaseModel):
+    id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = CharField(unique=True)
+    soul_path = CharField()  # 絕對路徑，指向 soul.md
+    avatar_path = CharField(null=True)  # 絕對路徑，指向 avatar 圖檔
+    live2d_dir = CharField(null=True)  # 絕對路徑，指向 live2d/ 資料夾
+    active = BooleanField(default=False)  # 同時只有一個 active
+    created_at = DateTimeField(default=datetime.utcnow)
+
+    class Meta:
+        table_name = "characters"
+
+
+class Relationship(BaseModel):
+    id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    character = ForeignKeyField(Character, backref="relationships", on_delete="CASCADE", column_name="character_id")
+    user_id = CharField()  # e.g. "discord:user:123456"
+    display_name = CharField()
+    notes = TextField(default="")  # markdown 格式，記住的事
+    memory_path = CharField(null=True)  # 指向 ~/.waifu/memory/{char}/direct/{user_id}.md
+    updated_at = DateTimeField(default=datetime.utcnow)
+
+    class Meta:
+        table_name = "relationships"
+        indexes = ((("character_id", "user_id"), True),)  # unique together
+
+    def save(self, *args, **kwargs):
+        self.updated_at = datetime.utcnow()
+        return super().save(*args, **kwargs)
+
+
+_TABLES = [Conversation, Message, CronJob, CronRun, PluginConfig, MCPServer, AppConfig, Character, Relationship]
 
 
 class Database:

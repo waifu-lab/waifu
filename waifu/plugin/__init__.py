@@ -52,6 +52,15 @@ class PluginRegistry:
     def get_mcp(self, name: str) -> Optional[BaseMCPAdapter]:
         return self._mcp_adapters.get(name)
 
+    def remove_tool(self, name: str) -> None:
+        self._tools = [t for t in self._tools if t.name != name]
+
+    def remove_hook(self, name: str) -> None:
+        self._hooks = [h for h in self._hooks if h.name != name]
+
+    def remove_mcp(self, name: str) -> None:
+        self._mcp_adapters.pop(name, None)
+
 
 class _PluginContextImpl:
     """PluginContext 的具體實作，注入給插件的 on_load()"""
@@ -64,11 +73,13 @@ class _PluginContextImpl:
         store: ConversationService,
         sessions: SessionService,
         gateway: "GatewayCore",
+        plugin: BasePlugin,
         voice: Optional[VoiceServiceProtocol] = None,
     ) -> None:
         self._registry = registry
         self._hook_registry = hook_registry
         self._gateway = gateway
+        self._plugin = plugin
         self.config = config
         self.store = store
         self.sessions = sessions
@@ -77,12 +88,15 @@ class _PluginContextImpl:
     def register_hook(self, hook: BaseHook) -> None:
         self._registry.add_hook(hook)
         self._hook_registry.register(hook)
+        self._plugin.registered_hooks.append(hook.name)
 
     def register_tool(self, tool: "Tool") -> None:
         self._registry.add_tool(tool)
+        self._plugin.registered_tools.append(tool.name)
 
     def register_mcp(self, name: str, adapter: BaseMCPAdapter) -> None:
         self._registry.add_mcp(name, adapter)
+        self._plugin.registered_mcps.append(name)
 
     async def register_adapter(self, adapter: BaseGatewayAdapter) -> None:
         await self._gateway.mount_adapter(adapter)
@@ -114,6 +128,9 @@ class PluginManager:
 
     async def load(self, plugin: BasePlugin, config: Optional[Dict[str, Any]] = None) -> None:
         name = plugin.name
+        plugin.registered_tools = []
+        plugin.registered_hooks = []
+        plugin.registered_mcps = []
         self._plugins[name] = (plugin, PluginState.loading)
         try:
             ctx = _PluginContextImpl(
@@ -123,6 +140,7 @@ class PluginManager:
                 store=self._store,
                 sessions=self._sessions,
                 gateway=self._gateway,
+                plugin=plugin,
                 voice=self._voice,
             )
             await plugin.on_load(ctx)
@@ -136,6 +154,14 @@ class PluginManager:
 
     async def unload(self, name: str) -> None:
         plugin, _ = self._plugins[name]
+
+        for tool_name in plugin.registered_tools:
+            self._plugin_registry.remove_tool(tool_name)
+        for hook_name in plugin.registered_hooks:
+            self._plugin_registry.remove_hook(hook_name)
+            self._hook_registry.unregister(hook_name)
+        for mcp_name in plugin.registered_mcps:
+            self._plugin_registry.remove_mcp(mcp_name)
         await plugin.on_disable()
         await plugin.on_unload()
         del self._plugins[name]

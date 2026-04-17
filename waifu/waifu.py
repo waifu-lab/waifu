@@ -1,3 +1,5 @@
+import json
+import logging
 from typing import Any, Dict, Optional
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
@@ -7,14 +9,28 @@ from waifu.gateway import GatewayCore
 from waifu.hook import HookPipeline, HookRegistry
 from waifu.hook.builtin import EmotionHook, LoggingHook, MemoryHook, TTSHook
 from waifu.plugin import PluginManager, PluginRegistry
-from waifu.store import AppPaths, Database
+from waifu.plugin.loader import PluginLoader
+from waifu.service.character import CharacterService
+from waifu.service.config import AppConfigService
+from waifu.service.mcp import MCPService
+from waifu.service.plugin import PluginService
+from waifu.store import AppPaths, CharacterManager, Database, FileMemoryStore
 from waifu.store.conversation import ConversationStore
+from waifu.store.repositories import (
+    AppConfigRepository,
+    CharacterRepository,
+    MCPRepository,
+    PluginRepository,
+    RelationshipRepository,
+)
 from waifu.voice import VoiceService
 from waifu_types import BaseGatewayAdapter, BaseHook, BasePlugin, HookContext, IncomingRequest, OutgoingResponse
 
+logger = logging.getLogger(__name__)
+
 
 def _build_provider(config: "ProviderConfig") -> ProviderText:
-    """從 ProviderConfig 建立 ProviderText 實例"""
+    """從 ProviderConfig 建立 ProviderText"""
     return ProviderText(
         name="waifu-provider",
         api_key=config.api_key,
@@ -62,11 +78,14 @@ class Waifu:
     """
 
     def __init__(self, config: WaifuConfig, paths: Optional[AppPaths] = None) -> None:
-        # Store — resolve paths and initialise DB (idempotent)
         self._paths = paths or AppPaths.resolve()
         self._db = Database(self._paths.db_file)
         self._db.init()
         self._conversation_store = ConversationStore(conversations_dir=self._paths.conversations_dir)
+
+        self._character_manager = CharacterManager(self._paths.characters_dir)
+        if config.character:
+            config.context.soul_content = self._character_manager.load_soul(config.character)
 
         self._provider = _build_provider(config.provider)
         self._voice_service: Optional[VoiceService] = _build_voice_service(config.voice)
@@ -98,10 +117,35 @@ class Waifu:
         )
         self._gateway.set_dispatch_handler(self._dispatch)
 
+        # Plugin Loader
+        self._plugin_loader = PluginLoader(self._paths.plugins_dir)
+
+        # Repositories
+        self._plugin_repo = PluginRepository()
+        self._mcp_repo = MCPRepository()
+        self._config_repo = AppConfigRepository()
+        self._character_repo = CharacterRepository()
+        self._relationship_repo = RelationshipRepository()
+
+        # Services
+        self._plugin_service = PluginService(self._plugin_repo, self._plugin_manager, self._plugin_loader)
+        self._mcp_service = MCPService(self._mcp_repo, self._plugin_manager)
+        self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
+        self._character_service = CharacterService(self._character_repo, self._relationship_repo)
+
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
+        memory_store = None
+        if config.character:
+            memory_store = FileMemoryStore(
+                memory_dir=self._paths.memory_dir,
+                character_name=config.character,
+                max_recent=config.context.max_history_messages,
+            )
+
         self._hook_registry.register(
             MemoryHook(
+                store=memory_store,
                 max_history=config.context.max_history_messages,
             )
         )
@@ -126,8 +170,30 @@ class Waifu:
         return self
 
     async def start(self) -> None:
-        """啟動所有已掛載的 Adapter"""
+        """啟動所有已掛載的 Adapter，並從 DB 恢復持久化設定"""
+        await self._restore_from_db()
         await self._gateway.start()
+
+    async def _restore_from_db(self) -> None:
+        """從 DB 恢復所有持久化設定到 runtime"""
+
+        for key, value in self._config_service.get_all().items():
+            self._config_service.set(key, value)
+
+        for row in self._mcp_repo.list_enabled():
+            try:
+                cmd = json.loads(row.command) if row.command else None
+                await self._mcp_service.add(row.name, row.type, cmd, row.url, {})
+            except Exception:
+                logger.exception("Failed to restore MCP server: %s", row.name)
+
+        for row in self._plugin_repo.list_enabled():
+            try:
+                config = json.loads(row.config_json)
+                plugin = self._plugin_loader.resolve(row.plugin_name)
+                await self._plugin_manager.load(plugin, config)
+            except Exception:
+                logger.exception("Failed to restore plugin: %s", row.name)
 
     @property
     def gateway(self) -> GatewayCore:
@@ -140,6 +206,22 @@ class Waifu:
     @property
     def voice_service(self) -> Optional[VoiceService]:
         return self._voice_service
+
+    @property
+    def plugin_service(self) -> PluginService:
+        return self._plugin_service
+
+    @property
+    def mcp_service(self) -> MCPService:
+        return self._mcp_service
+
+    @property
+    def config_service(self) -> AppConfigService:
+        return self._config_service
+
+    @property
+    def character_service(self) -> CharacterService:
+        return self._character_service
 
     async def _dispatch(self, request: IncomingRequest) -> OutgoingResponse:
         """
