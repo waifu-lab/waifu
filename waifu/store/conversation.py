@@ -59,7 +59,13 @@ class ConversationStore:
         return matches[0] if len(matches) == 1 else None
 
     def list(self, limit: int = 20) -> List[Conversation]:
-        return list(Conversation.select().order_by(Conversation.updated_at.desc()).limit(limit))
+        q = Conversation.select().order_by(Conversation.updated_at.desc())
+        if limit > 0:
+            q = q.limit(limit)
+        return list(q)
+
+    def count(self) -> int:
+        return Conversation.select().count()
 
     def delete(self, id: str) -> bool:
         n = Conversation.delete().where(Conversation.id == id).execute()

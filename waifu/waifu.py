@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from typing import Any, Dict, Optional
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
@@ -27,6 +28,18 @@ from waifu.voice import VoiceService
 from waifu_types import BaseGatewayAdapter, BaseHook, BasePlugin, HookContext, IncomingRequest, OutgoingResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _config_seed(config: "WaifuConfig") -> dict:
+    """Flatten WaifuConfig into dotted key/value pairs for DB seeding."""
+    entries: dict = {}
+    for field, value in config.gateway.model_dump().items():
+        entries[f"gateway.{field}"] = value
+    for field, value in config.context.model_dump(exclude={"soul_content"}).items():
+        entries[f"context.{field}"] = value
+    for field, value in config.provider.model_dump().items():
+        entries[f"provider.{field}"] = value
+    return entries
 
 
 def _build_provider(config: "ProviderConfig") -> ProviderText:
@@ -79,6 +92,7 @@ class Waifu:
 
     def __init__(self, config: WaifuConfig, paths: Optional[AppPaths] = None) -> None:
         self._paths = paths or AppPaths.resolve()
+        self._started_at: float = 0.0
         self._db = Database(self._paths.db_file)
         self._db.init()
         self._conversation_store = ConversationStore(conversations_dir=self._paths.conversations_dir)
@@ -107,6 +121,7 @@ class Waifu:
 
         # Plugin
         self._plugin_registry = PluginRegistry()
+        self._register_builtin_tools()
         self._plugin_manager = PluginManager(
             hook_registry=self._hook_registry,
             plugin_registry=self._plugin_registry,
@@ -126,6 +141,9 @@ class Waifu:
         self._config_repo = AppConfigRepository()
         self._character_repo = CharacterRepository()
         self._relationship_repo = RelationshipRepository()
+
+        # Seed initial config into DB (only if keys don't already exist)
+        self._config_repo.seed_if_absent(_config_seed(config))
 
         # Services
         self._plugin_service = PluginService(self._plugin_repo, self._plugin_manager, self._plugin_loader)
@@ -154,6 +172,13 @@ class Waifu:
             self._hook_registry.register(TTSHook(self._voice_service))
         self._hook_registry.register(LoggingHook())
 
+    def _register_builtin_tools(self) -> None:
+        """將 waifu/tool/ 下的內建工具預先注冊到 PluginRegistry"""
+        from waifu.tool import read_tool, shell_tool, webfetch_tool, write_tool
+
+        for t in (read_tool, write_tool, shell_tool, webfetch_tool):
+            self._plugin_registry.add_tool(t)
+
     def mount(self, adapter: BaseGatewayAdapter) -> "Waifu":
         """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP）"""
         self._gateway.mount(adapter)
@@ -171,6 +196,7 @@ class Waifu:
 
     async def start(self) -> None:
         """啟動所有已掛載的 Adapter，並從 DB 恢復持久化設定"""
+        self._started_at = time.time()
         await self._restore_from_db()
         await self._gateway.start()
 
@@ -222,6 +248,18 @@ class Waifu:
     @property
     def character_service(self) -> CharacterService:
         return self._character_service
+
+    @property
+    def conversation_store(self) -> ConversationStore:
+        return self._conversation_store
+
+    @property
+    def plugin_registry(self) -> PluginRegistry:
+        return self._plugin_registry
+
+    @property
+    def started_at(self) -> float:
+        return self._started_at
 
     async def _dispatch(self, request: IncomingRequest) -> OutgoingResponse:
         """

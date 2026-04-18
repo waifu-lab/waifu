@@ -18,5 +18,9 @@ class AppConfigRepository:
     def get_all(self) -> dict:
         return {r.key: json.loads(r.value) for r in AppConfig.select()}
 
+    def seed_if_absent(self, entries: dict) -> None:
+        for key, value in entries.items():
+            AppConfig.insert(key=key, value=json.dumps(value)).on_conflict_ignore().execute()
+
     def delete(self, key: str) -> None:
         AppConfig.delete().where(AppConfig.key == key).execute()

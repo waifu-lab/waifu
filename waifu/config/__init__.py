@@ -4,7 +4,7 @@ from pydantic import BaseModel
 
 
 class GatewayConfig(BaseModel):
-    host: str = "0.0.0.0"
+    host: str = "localhost"
     port: int = 8765
     session_ttl: int = 3600
     lane_max_queue: int = 10

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from fastapi import FastAPI
 
@@ -8,10 +8,13 @@ if TYPE_CHECKING:
     from waifu.gateway.adapters.http import HTTPAdapter
     from waifu.gateway.adapters.waifu_node import WaifuNodeAdapter
     from waifu.gateway.adapters.websocket import WebSocketAdapter
+    from waifu.gateway.session import SessionManager
+    from waifu.plugin import PluginManager, PluginRegistry
     from waifu.service.character import CharacterService
     from waifu.service.config import AppConfigService
     from waifu.service.mcp import MCPService
     from waifu.service.plugin import PluginService
+    from waifu.store.conversation import ConversationStore
 
 
 def include_routers(
@@ -24,6 +27,14 @@ def include_routers(
     mcp_service: "MCPService | None" = None,
     config_service: "AppConfigService | None" = None,
     character_service: "CharacterService | None" = None,
+    conversation_store: "ConversationStore | None" = None,
+    plugin_registry: "PluginRegistry | None" = None,
+    plugin_manager: "PluginManager | None" = None,
+    session_manager: "SessionManager | None" = None,
+    get_started_at: "Callable[[], float] | None" = None,
+    voice_enabled: bool = False,
+    stt_enabled: bool = False,
+    tts_enabled: bool = False,
 ) -> None:
     from .chat import make_chat_router
     from .plugin import make_plugin_router
@@ -58,6 +69,44 @@ def include_routers(
         from .character import make_character_router
 
         app.include_router(make_character_router(character_service))
+
+    if conversation_store is not None:
+        from .conversation import make_conversation_router
+
+        app.include_router(make_conversation_router(conversation_store))
+
+    if plugin_registry is not None:
+        from .tools import make_tools_router
+
+        app.include_router(make_tools_router(plugin_registry))
+
+    if session_manager is not None:
+        from .session import make_session_router
+
+        app.include_router(make_session_router(session_manager))
+
+    if (
+        mcp_service is not None
+        and config_service is not None
+        and plugin_manager is not None
+        and session_manager is not None
+        and conversation_store is not None
+    ):
+        from .status import make_status_router
+
+        app.include_router(
+            make_status_router(
+                get_started_at=get_started_at or (lambda: 0.0),
+                session_manager=session_manager,
+                conversation_store=conversation_store,
+                plugin_manager=plugin_manager,
+                mcp_service=mcp_service,
+                config_service=config_service,
+                voice_enabled=voice_enabled,
+                stt_enabled=stt_enabled,
+                tts_enabled=tts_enabled,
+            )
+        )
 
 
 __all__ = ["include_routers"]

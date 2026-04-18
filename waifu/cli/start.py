@@ -3,11 +3,12 @@ import logging
 import sys
 from pathlib import Path
 from typing import List
+from waifu.store.paths import AppPaths
 
 
 def cmd_start(args: List[str]) -> None:
     parser = argparse.ArgumentParser(prog="waifu start", description="Start the waifu server")
-    parser.add_argument("--config", "-c", default="config.toml", help="Config file path (default: config.toml)")
+    parser.add_argument("--config", "-c", default="default", help="Config file path)")
     parser.add_argument("--host", default=None, help="Override host")
     parser.add_argument("--port", "-p", type=int, default=None, help="Override port")
     parser.add_argument("--app", default=None, help="FastAPI app import path, e.g. myapp:app")
@@ -26,7 +27,10 @@ def cmd_start(args: List[str]) -> None:
         print("uvicorn is required: pip install uvicorn", file=sys.stderr)
         sys.exit(1)
 
-    config = _load_config(ns.config)
+    if ns.config == "default":
+        config = _load_config(AppPaths.resolve().config_file)
+    else:
+        config = _load_config(ns.config)
     host = ns.host or config.gateway.host
     port = ns.port or config.gateway.port
 

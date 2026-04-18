@@ -42,6 +42,10 @@ class SessionManager:
     def delete(self, conversation_id: str) -> None:
         self._sessions.pop(conversation_id, None)
 
+    def list_all(self) -> list:
+        self._evict_expired()
+        return list(self._sessions.values())
+
     def _evict_expired(self) -> None:
         now = time.time()
         expired = [sid for sid, s in self._sessions.items() if now - s.last_active > self._ttl]

@@ -43,6 +43,14 @@ async def _lifespan(app: FastAPI):
         mcp_service=waifu.mcp_service,
         config_service=waifu.config_service,
         character_service=waifu.character_service,
+        conversation_store=waifu.conversation_store,
+        plugin_registry=waifu.plugin_registry,
+        plugin_manager=waifu.plugin_manager,
+        session_manager=waifu.gateway.session_manager,
+        get_started_at=lambda: waifu.started_at,
+        voice_enabled=waifu.voice_service is not None,
+        stt_enabled=waifu.voice_service is not None and waifu.voice_service.has_stt,
+        tts_enabled=waifu.voice_service is not None and waifu.voice_service.has_tts,
     )
 
     app.state.waifu = waifu
