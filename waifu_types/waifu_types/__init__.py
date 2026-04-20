@@ -5,9 +5,34 @@ from .plugin import BasePlugin, PluginContext
 from .services import ConversationService, SessionService, VoiceServiceProtocol
 from .session import BaseSession
 from .trace import BaseExecutionTrace
-from .types import Attachment, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from .types import (
+    AssistantMessage,
+    Attachment,
+    BaseMessage,
+    ConversationMode,
+    GenericMessage,
+    IncomingRequest,
+    LLMMessage,
+    OutgoingResponse,
+    Sender,
+    SystemMessage,
+    ToolCall,
+    ToolCallFunction,
+    ToolMessage,
+    UserMessage,
+)
 
 __all__ = [
+    # message types
+    "BaseMessage",
+    "UserMessage",
+    "AssistantMessage",
+    "ToolMessage",
+    "SystemMessage",
+    "GenericMessage",
+    "ToolCall",
+    "ToolCallFunction",
+    "LLMMessage",
     # types
     "IncomingRequest",
     "OutgoingResponse",

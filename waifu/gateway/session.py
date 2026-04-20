@@ -2,23 +2,25 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from waifu_types import BaseMessage
+
 
 @dataclass
 class Session:
     conversation_id: str
     created_at: float = field(default_factory=time.time)
     last_active: float = field(default_factory=time.time)
-    history: List[Dict[str, Any]] = field(default_factory=list)
+    history: List[BaseMessage] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def touch(self) -> None:
         self.last_active = time.time()
 
-    def add_message(self, message: Dict[str, Any]) -> None:
+    def add_message(self, message: BaseMessage) -> None:
         self.history.append(message)
         self.touch()
 
-    def add_messages(self, messages: List[Dict[str, Any]]) -> None:
+    def add_messages(self, messages: List[BaseMessage]) -> None:
         self.history.extend(messages)
         self.touch()
 

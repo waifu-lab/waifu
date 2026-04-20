@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 from waifu_types.session import BaseSession
 from waifu_types.trace import BaseExecutionTrace
-from waifu_types.types import IncomingRequest
+from waifu_types.types import BaseMessage, IncomingRequest
 
 
 class HookContext(BaseModel):
@@ -13,7 +13,7 @@ class HookContext(BaseModel):
 
     request: IncomingRequest
     session: BaseSession
-    messages: List[Dict[str, Any]]  # 可被 hook 修改的對話歷史
+    messages: List[BaseMessage]  # 可被 hook 修改的對話歷史
     metadata: Dict[str, Any] = {}
     response: Optional[str] = None  # post hook 時有值
     trace: Optional[BaseExecutionTrace] = None

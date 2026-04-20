@@ -4,7 +4,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from waifu_types import AssistantMessage, BaseMessage, GenericMessage, SystemMessage, ToolMessage, UserMessage
+
 _SUMMARY_MARKER = "[memory_summary]"
+
+
+def _dict_to_message(d: Dict[str, Any]) -> BaseMessage:
+    role = d.get("role", "")
+    if role == "user":
+        return UserMessage(content=d.get("content", ""))
+    if role == "assistant":
+        return AssistantMessage(content=d.get("content"), tool_calls=d.get("tool_calls"))
+    if role == "tool":
+        return ToolMessage(tool_call_id=d.get("tool_call_id", ""), content=d.get("content", ""))
+    if role == "system":
+        return SystemMessage(content=d.get("content", ""))
+    return GenericMessage(**d)
+
 
 _SECTION_RE = re.compile(r"^## (.+)$", re.MULTILINE)
 _MSG_RE = re.compile(
@@ -173,12 +189,8 @@ class FileMemoryStore:
         self._character = character_name
         self._max_recent = max_recent
 
-    async def load(self, key: str) -> List[Dict[str, Any]]:
-        """
-        載入對話歷史
-
-        回傳：[舊對話摘要 system message] + 近期原文 messages
-        """
+    async def load(self, key: str) -> List[BaseMessage]:
+        """回傳：舊對話摘要 system message + 近期原文"""
         path = self._resolve_path(key)
         if not path.exists():
             return []
@@ -186,7 +198,6 @@ class FileMemoryStore:
         mem = _parse_memory_file(path.read_text(encoding="utf-8"))
         result: List[Dict[str, Any]] = []
 
-        # 舊對話摘要作為 system message 注入
         if mem.summary:
             result.append(
                 {
@@ -196,30 +207,26 @@ class FileMemoryStore:
             )
 
         result.extend(mem.recent_messages)
-        return result
+        return [_dict_to_message(d) for d in result]
 
-    async def save(self, key: str, messages: List[Dict[str, Any]]) -> None:
+    async def save(self, key: str, messages: List[BaseMessage]) -> None:
         """
-        儲存對話歷史（雙層記憶）
-
         1. 過濾掉摘要 system message
         2. 超過 max_recent 的舊訊息壓入摘要層
         3. 保留 relationship / facts 不動
         """
         path = self._resolve_path(key)
 
-        # 讀取現有檔案（保留 relationship / facts / summary）
         if path.exists():
             mem = _parse_memory_file(path.read_text(encoding="utf-8"))
         else:
             mem = MemoryFile(header=f"# Memory: {key}")
-            # 初始關係層
             mem.relationship = f"- 親密度: 0\n- 初次見面: {datetime.now().strftime('%Y-%m-%d')}"
 
-        # 過濾掉摘要 system message（由 load() 注入的）
+        raw = [m.model_dump(exclude_none=True) for m in messages]
         actual_messages = [
             m
-            for m in messages
+            for m in raw
             if not (
                 m.get("role") == "system"
                 and isinstance(m.get("content", ""), str)

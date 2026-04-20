@@ -4,7 +4,7 @@ import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, runtime_checkable
 
-from waifu_types import BaseHook, ConversationMode, HookContext
+from waifu_types import AssistantMessage, BaseHook, BaseMessage, ConversationMode, HookContext, UserMessage
 
 if TYPE_CHECKING:
     from waifu.voice.service import VoiceService
@@ -12,20 +12,8 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class MemoryStore(Protocol):
-    """
-    對話歷史持久化 store 的介面
-
-    實作範例：InMemoryStore（內建）、RedisStore、SQLiteStore
-    只需實作這兩個 async 方法即可被 MemoryHook 使用
-    """
-
-    async def load(self, key: str) -> List[Dict[str, Any]]:
-        """依 conversation_id 載入對話歷史"""
-        ...
-
-    async def save(self, key: str, messages: List[Dict[str, Any]]) -> None:
-        """依 conversation_id 儲存對話歷史"""
-        ...
+    async def load(self, key: str) -> List[BaseMessage]: ...
+    async def save(self, key: str, messages: List[BaseMessage]) -> None: ...
 
 
 logger = logging.getLogger(__name__)
@@ -107,14 +95,14 @@ class MemoryHook(BaseHook):
         cid = ctx.request.conversation_id
         existing = await self._store.load(cid)
 
-        new_messages: List[Dict[str, Any]] = [
-            {"role": "user", "content": ctx.request.content},
-            {"role": "assistant", "content": ctx.response},
+        new_messages: List[BaseMessage] = [
+            UserMessage(content=ctx.request.content),
+            AssistantMessage(content=ctx.response),
         ]
         merged = (existing or []) + new_messages
 
         if len(merged) > self._max_history:
-            merged = merged[-self._max_history :]
+            merged = merged[-self._max_history:]
 
         await self._store.save(cid, merged)
         return ctx
@@ -134,12 +122,12 @@ class InMemoryStore:
     """簡易 in-memory 歷史 store（預設，重啟清空）"""
 
     def __init__(self) -> None:
-        self._data: Dict[str, List[Dict[str, Any]]] = {}
+        self._data: Dict[str, List[BaseMessage]] = {}
 
-    async def load(self, key: str) -> List[Dict[str, Any]]:
+    async def load(self, key: str) -> List[BaseMessage]:
         return list(self._data.get(key, []))
 
-    async def save(self, key: str, messages: List[Dict[str, Any]]) -> None:
+    async def save(self, key: str, messages: List[BaseMessage]) -> None:
         self._data[key] = list(messages)
 
 

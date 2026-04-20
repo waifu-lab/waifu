@@ -1,10 +1,55 @@
 import uuid
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from waifu_types.trace import BaseExecutionTrace
+
+
+# FROM shuvi/types.py
+class ToolCallFunction(BaseModel):
+    name: str
+    arguments: str
+
+
+class ToolCall(BaseModel):
+    id: str
+    type: Literal["function"] = "function"
+    function: ToolCallFunction
+
+
+class BaseMessage(BaseModel):
+    role: str
+    content: str
+
+
+class UserMessage(BaseMessage):
+    role: Literal["user"] = "user"
+
+
+class AssistantMessage(BaseMessage):
+    role: Literal["assistant"] = "assistant"
+    content: Optional[str] = None
+    tool_calls: Optional[List[ToolCall]] = None
+
+
+class ToolMessage(BaseMessage):
+    role: Literal["tool"] = "tool"
+    tool_call_id: str
+
+
+class SystemMessage(BaseMessage):
+    role: Literal["system"] = "system"
+
+
+LLMMessage = Union[UserMessage, AssistantMessage, ToolMessage]
+
+
+class GenericMessage(BaseMessage):
+    """Fallback for unknown/custom message roles. Preserves all extra fields."""
+
+    model_config = ConfigDict(extra="allow")
 
 
 class ConversationMode(str, Enum):

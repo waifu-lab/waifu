@@ -25,7 +25,34 @@ from waifu.store.repositories import (
     RelationshipRepository,
 )
 from waifu.voice import VoiceService
-from waifu_types import BaseGatewayAdapter, BaseHook, BasePlugin, HookContext, IncomingRequest, OutgoingResponse
+from waifu_types import (
+    AssistantMessage,
+    BaseGatewayAdapter,
+    BaseHook,
+    BaseMessage,
+    BasePlugin,
+    GenericMessage,
+    HookContext,
+    IncomingRequest,
+    OutgoingResponse,
+    SystemMessage,
+    ToolMessage,
+    UserMessage,
+)
+
+
+def _to_waifu_message(m: Any) -> BaseMessage:
+    d = m.model_dump(exclude_none=True)
+    role = d.get("role", "")
+    if role == "user":
+        return UserMessage(content=d.get("content", ""))
+    if role == "assistant":
+        return AssistantMessage(content=d.get("content"), tool_calls=d.get("tool_calls"))
+    if role == "tool":
+        return ToolMessage(tool_call_id=d.get("tool_call_id", ""), content=d.get("content", ""))
+    if role == "system":
+        return SystemMessage(content=d.get("content", ""))
+    return GenericMessage(**d)
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +117,10 @@ class Waifu:
     不含業務邏輯，只負責建立依賴關係並串接資料流
     """
 
-    def __init__(self, config: WaifuConfig, paths: Optional[AppPaths] = None) -> None:
+    def __init__(
+        self, config: WaifuConfig, paths: Optional[AppPaths] = None, localmode: Optional[bool] = False
+    ) -> None:
+        self._localmode: bool = bool(localmode)
         self._paths = paths or AppPaths.resolve()
         self._started_at: float = 0.0
         self._db = Database(self._paths.db_file)
@@ -198,7 +228,8 @@ class Waifu:
         """啟動所有已掛載的 Adapter，並從 DB 恢復持久化設定"""
         self._started_at = time.time()
         await self._restore_from_db()
-        await self._gateway.start()
+        if not self._localmode:
+            await self._gateway.start()
 
     async def _restore_from_db(self) -> None:
         """從 DB 恢復所有持久化設定到 runtime"""
@@ -258,6 +289,13 @@ class Waifu:
         return self._plugin_registry
 
     @property
+    def localmode(self) -> bool:
+        return self._localmode
+
+    async def dispatch(self, request: IncomingRequest) -> OutgoingResponse:
+        return await self._dispatch(request)
+
+    @property
     def started_at(self) -> float:
         return self._started_at
 
@@ -276,7 +314,6 @@ class Waifu:
                 title=request.conversation_id,
             )
 
-        # Persist user message
         self._conversation_store.add_llm_message(
             request.conversation_id,
             {"role": "user", "content": request.content},
@@ -288,33 +325,37 @@ class Waifu:
             messages=list(session.history),
         )
 
-        # Pre hooks（限流、記憶注入、內容審核 ...）
         ctx = await self._hook_pipeline.run_pre(ctx)
         if ctx.abort:
             return self._build_response(request, content=ctx.response or "", ctx=ctx)
 
-        # 組裝 AgentInput → 執行 shuvi Agent
-        agent_input = await self._context_builder.build(ctx, self._plugin_registry)
-        result = await self._agent_runner.run(ctx, agent_input)
+        system_prompt = self._context_builder.build_system_prompt(ctx)
+        context_manager = self._context_builder.build_context_manager(ctx)
+        tools = self._plugin_registry.get_all_tools()
+        result = await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
 
-        # 從結果訊息中取最後一條 assistant 回應
         final_content = ""
         for msg in reversed(result.messages):
-            if msg.get("role") == "assistant" and msg.get("content"):
-                final_content = msg["content"]
+            if msg.role == "assistant" and msg.content:
+                final_content = msg.content
                 break
 
         ctx.response = final_content
         ctx.trace = result.trace
 
-        # 更新 session 歷史（只追加本輪新訊息）並持久化至 DB
-        new_messages = result.messages[len(session.history) :]
-        session.add_messages(new_messages)
-        for msg in new_messages:
-            if msg.get("role") != "user":
-                self._conversation_store.add_llm_message(request.conversation_id, msg)
+        # result.messages = windowed_history + user_msg + new_msgs
+        # new_msgs starts after history_len (windowed) + 1 (user msg)
+        history_len = len(session.history)
+        new_shuvi_msgs = result.messages[history_len + 1:]
+        new_waifu_msgs = [_to_waifu_message(m) for m in new_shuvi_msgs]
+        session.add_messages(new_waifu_msgs)
+        for msg in new_waifu_msgs:
+            if msg.role != "user":
+                self._conversation_store.add_llm_message(
+                    request.conversation_id,
+                    msg.model_dump(exclude_none=True),
+                )
 
-        # Post hooks（情緒解析、記憶儲存、日誌 ...）
         ctx = await self._hook_pipeline.run_post(ctx)
 
         return self._build_response(request, content=ctx.response or final_content, ctx=ctx)

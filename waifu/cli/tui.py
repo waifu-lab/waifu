@@ -1,13 +1,10 @@
 import sys
-from typing import List, Optional
+from typing import List
 
 from textual import on, work
 from textual.app import App, ComposeResult
-from textual.containers import Horizontal, ScrollableContainer, Vertical
-from textual.css.query import NoMatches
-from textual.widgets import Button, Footer, Header, Input, Label, Markdown, Static
-
-# TODO 重製TUI
+from textual.containers import Horizontal, ScrollableContainer
+from textual.widgets import Button, Footer, Header, Input, Static
 
 _CSS = """
 Screen {
@@ -30,11 +27,6 @@ Screen {
     color: $text;
     margin-top: 0;
     margin-bottom: 1;
-}
-
-.message-label {
-    text-style: bold;
-    margin-bottom: 0;
 }
 
 #input-bar {
@@ -79,14 +71,11 @@ class WaifuTUI(App):
         ("ctrl+q", "quit", "Quit"),
     ]
 
-    def __init__(self, provider_cfg, context_cfg) -> None:
+    def __init__(self, config) -> None:
         super().__init__()
-        self._provider_cfg = provider_cfg
-        self._context_cfg = context_cfg
-        self._history: list = []
-        self._agent_runner = None
-        self._provider = None
-        self._context_builder = None
+        from waifu.waifu import Waifu
+
+        self._waifu = Waifu(config, localmode=True)
         self._busy = False
 
     def compose(self) -> ComposeResult:
@@ -98,24 +87,12 @@ class WaifuTUI(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._setup_pipeline()
+        self._init_waifu()
         self.query_one("#chat-input", Input).focus()
 
-    def _setup_pipeline(self) -> None:
-        from waifu.agent import AgentRunner, ContextBuilder
-        from hai.providers.openai import OpenAI
-
-        # FIXME: 這裡直接用 OpenAI provider，應該改成支援多 provider 的工廠模式
-        self._provider = OpenAI(
-            name="waifu-tui",
-            api_key=self._provider_cfg.api_key,
-            model=self._provider_cfg.model,
-            temperature=self._provider_cfg.temperature,
-            max_tokens=self._provider_cfg.max_tokens,
-            stream=True,
-        )
-        self._context_builder = ContextBuilder(self._context_cfg)
-        self._agent_runner = AgentRunner(self._provider)
+    @work
+    async def _init_waifu(self) -> None:
+        await self._waifu.start()
 
     @on(Button.Pressed, "#send-btn")
     @on(Input.Submitted, "#chat-input")
@@ -129,20 +106,15 @@ class WaifuTUI(App):
 
     @work(exclusive=True)
     async def _send_message(self, text: str) -> None:
-        from waifu.agent.context import AgentInput
-        from waifu.gateway.session import Session
-        from waifu.plugin import PluginRegistry
-        from waifu_types import ConversationMode, HookContext, IncomingRequest, Sender
+        from waifu_types import ConversationMode, IncomingRequest, Sender
 
         self._busy = True
         log = self.query_one("#chat-log", ScrollableContainer)
 
-        # Display user message
         user_widget = ChatMessage("user", text)
         await log.mount(user_widget)
         log.scroll_end(animate=False)
 
-        # Placeholder for assistant response
         asst_widget = ChatMessage("assistant", "…")
         await log.mount(asst_widget)
         log.scroll_end(animate=False)
@@ -163,27 +135,10 @@ class WaifuTUI(App):
             reply_fn=lambda response=None, *, chunk=None: on_chunk(chunk) if chunk else None,
         )
 
-        session = Session(conversation_id="tui:main")
-        session.add_messages(self._history)
-
-        ctx = HookContext(request=request, session=session, messages=list(self._history))
-        plugin_registry = PluginRegistry()
-        agent_input = await self._context_builder.build(ctx, plugin_registry)
-
         try:
-            result = await self._agent_runner.run(ctx, agent_input)
-            final = "".join(chunks)
-            if not final:
-                for msg in reversed(result.messages):
-                    if msg.get("role") == "assistant" and msg.get("content"):
-                        final = msg["content"]
-                        break
+            result = await self._waifu.dispatch(request)
+            final = "".join(chunks) or result.content
             asst_widget.update(final)
-
-            # Update history
-            self._history.append({"role": "user", "content": text})
-            self._history.append({"role": "assistant", "content": final})
-
         except Exception as exc:
             asst_widget.update(f"[red]Error:[/red] {exc}")
 
@@ -194,7 +149,7 @@ class WaifuTUI(App):
 
 def cmd_tui(args: List[str]) -> None:
     from waifu.cli.config import _load_raw
-    from waifu.config import ContextConfig, ProviderConfig
+    from waifu.config import WaifuConfig
 
     raw = _load_raw()
     if not raw.get("provider"):
@@ -203,8 +158,6 @@ def cmd_tui(args: List[str]) -> None:
         err_console.print("[red]No config found.[/red] Run [bold]waifu init[/bold] to get started.")
         sys.exit(1)
 
-    provider_cfg = ProviderConfig(**raw["provider"])
-    context_cfg = ContextConfig(**raw.get("context", {}))
-
-    app = WaifuTUI(provider_cfg=provider_cfg, context_cfg=context_cfg)
+    config = WaifuConfig(**raw)
+    app = WaifuTUI(config=config)
     app.run()

@@ -1,36 +1,36 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 
 from shuvi.agent import Agent
+from shuvi.context import ContextManager
 from shuvi.types import AgentCallbacks, AgentConfig, AgentResult
 from waifu_types import HookContext
 
-from .context import AgentInput
-
 if TYPE_CHECKING:
     from hai.providers.providers import ProviderText
+    from hai.tool import Tool
 
 
 class AgentRunner:
-    """
-    包裝 shuvi.Agent，注入 streaming callback
-
-    使用 DI：ProviderText 由外部（Waifu）注入
-    """
-
     def __init__(self, provider: "ProviderText") -> None:
         self.provider = provider
 
-    async def run(self, ctx: HookContext, agent_input: AgentInput) -> AgentResult:
+    async def run(
+        self,
+        ctx: HookContext,
+        system_prompt: str,
+        tools: List["Tool"],
+        context_manager: ContextManager,
+    ) -> AgentResult:
         agent = Agent(
             AgentConfig(
                 provider=self.provider,
-                system_prompt=agent_input.system_prompt,
-                tools=agent_input.tools,
+                system_prompt=system_prompt,
+                tools=tools,
                 callbacks=AgentCallbacks(
-                    # streaming：每個 assistant chunk 即時推送給 client
-                    assistant_message=lambda msg: ctx.request.reply_fn(chunk=msg.get("content", "")),
+                    assistant_message=lambda msg: ctx.request.reply_fn(chunk=msg.content or ""),
                 ),
                 session_id=ctx.request.conversation_id,
+                context_manager=context_manager,
             )
         )
-        return await agent.run(agent_input.messages)
+        return await agent.run()
