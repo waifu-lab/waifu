@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel as PydanticBaseModel
@@ -32,7 +32,7 @@ def make_mcp_router(mcp_service: MCPService) -> APIRouter:
     async def add_mcp(body: AddMCPRequest) -> Dict[str, str]:
         try:
             row = await mcp_service.add(body.name, body.type, body.command, body.url, body.config)
-            return {"status": "added", "name": row.name}
+            return {"status": "added", "name": cast(str, row.name)}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e)) from e
 

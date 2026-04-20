@@ -2,7 +2,9 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
+
+from peewee import CharField, DateTimeField, ForeignKeyField, TextField
 
 from waifu.store.models import Conversation, Message
 
@@ -59,7 +61,7 @@ class ConversationStore:
         return matches[0] if len(matches) == 1 else None
 
     def list(self, limit: int = 20) -> List[Conversation]:
-        q = Conversation.select().order_by(Conversation.updated_at.desc())
+        q = Conversation.select().order_by(cast(DateTimeField, Conversation.updated_at).desc())
         if limit > 0:
             q = q.limit(limit)
         return list(q)
@@ -72,11 +74,13 @@ class ConversationStore:
         return n > 0
 
     def search(self, query: str) -> List[Conversation]:
-        matching_ids = Message.select(Message.conversation_id).where(Message.content.contains(query))
+        matching_ids = Message.select(cast(ForeignKeyField, Message.conversation)).where(
+            cast(TextField, Message.content).contains(query)
+        )
         return list(
             Conversation.select()
-            .where(Conversation.title.contains(query) | Conversation.id.in_(matching_ids))
-            .order_by(Conversation.updated_at.desc())
+            .where(cast(CharField, Conversation.title).contains(query) | cast(CharField, Conversation.id).in_(matching_ids))
+            .order_by(cast(DateTimeField, Conversation.updated_at).desc())
         )
 
     def compact(self, id: str) -> int:
@@ -87,7 +91,11 @@ class ConversationStore:
         if total <= keep:
             return 0
         cutoff_msg = (
-            Message.select().where(Message.conversation == id).order_by(Message.created_at.desc()).offset(keep).first()
+            Message.select()
+            .where(cast(ForeignKeyField, Message.conversation) == id)
+            .order_by(cast(DateTimeField, Message.created_at).desc())
+            .offset(keep)
+            .first()
         )
         if cutoff_msg is None:
             return 0
@@ -95,8 +103,8 @@ class ConversationStore:
             Message.delete()
             .where(
                 Message.conversation == id,
-                Message.created_at <= cutoff_msg.created_at,
-                Message.role != "system",
+                cast(DateTimeField, Message.created_at) <= cast(datetime, cutoff_msg.created_at),
+                cast(CharField, Message.role) != "system",
             )
             .execute()
         )
@@ -170,7 +178,11 @@ class ConversationStore:
         return self.add_message(conversation_id, role, parts)
 
     def get_messages(self, conversation_id: str, limit: int = 100) -> List[Message]:
-        q = Message.select().where(Message.conversation == conversation_id).order_by(Message.created_at.asc())
+        q = (
+            Message.select()
+            .where(cast(ForeignKeyField, Message.conversation) == conversation_id)
+            .order_by(cast(DateTimeField, Message.created_at).asc())
+        )
         if limit > 0:
             q = q.limit(limit)
         return list(q)
@@ -178,9 +190,9 @@ class ConversationStore:
     def get_messages_as_dicts(self, conversation_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         return [
             {
-                "id": m.id,
-                "role": m.role,
-                "parts": json.loads(m.content),
+                "id": cast(str, m.id),
+                "role": cast(str, m.role),
+                "parts": json.loads(cast(str, m.content)),
             }
             for m in self.get_messages(conversation_id, limit)
         ]
@@ -197,11 +209,11 @@ class ConversationStore:
         msgs = self.get_messages(conversation_id, limit=0)  # 0 → fetch all
 
         lines: List[str] = [
-            f"# {conv.title}",
+            f"# {cast(str, conv.title)}",
             "",
-            f"**ID:** {conv.id}  ",
-            f"**Created:** {str(conv.created_at)[:16]}  ",
-            f"**Updated:** {str(conv.updated_at)[:16]}",
+            f"**ID:** {cast(str, conv.id)}  ",
+            f"**Created:** {str(cast(datetime, conv.created_at))[:16]}  ",
+            f"**Updated:** {str(cast(datetime, conv.updated_at))[:16]}",
             "",
             "---",
             "",
@@ -215,12 +227,13 @@ class ConversationStore:
         }
 
         for m in msgs:
-            label = role_labels.get(m.role, f"**{m.role}**")
-            ts = str(m.created_at)[:16]
+            role = cast(str, m.role)
+            label = role_labels.get(role, f"**{role}**")
+            ts = str(cast(datetime, m.created_at))[:16]
             try:
-                parts = json.loads(m.content)
+                parts = json.loads(cast(str, m.content))
             except (json.JSONDecodeError, TypeError):
-                parts = [{"type": "text", "text": m.content}]
+                parts = [{"type": "text", "text": cast(str, m.content)}]
             body = _parts_to_text(parts)
             lines += [f"{label} · {ts}", "", body, "", "---", ""]
 
@@ -234,5 +247,5 @@ class ConversationStore:
         conv = self.get(conversation_id)
         if conv is None:
             return
-        filename = _safe_filename(conv.title, conv.id)
+        filename = _safe_filename(cast(str, conv.title), cast(str, conv.id))
         self.export_markdown(conversation_id, self._conversations_dir / filename)

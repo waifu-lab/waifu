@@ -1,5 +1,6 @@
 import sys
-from typing import List
+from datetime import datetime
+from typing import List, cast
 
 from rich.table import Table
 
@@ -72,7 +73,7 @@ def _cmd_list(limit: int) -> None:
     table.add_column("Title", style="bold")
     table.add_column("Updated", style="dim")
     for c in convs:
-        table.add_row(c.id, c.title, str(c.updated_at)[:16])
+        table.add_row(cast(str, c.id), cast(str, c.title), str(cast(datetime, c.updated_at))[:16])
     console.print(table)
 
 
@@ -114,7 +115,7 @@ def _cmd_search(args: List[str]) -> None:
     table.add_column("Title", style="bold")
     table.add_column("Updated", style="dim")
     for c in convs:
-        table.add_row(c.id, c.title, str(c.updated_at)[:16])
+        table.add_row(cast(str, c.id), cast(str, c.title), str(cast(datetime, c.updated_at))[:16])
     console.print(table)
 
 
@@ -160,14 +161,15 @@ def _cmd_messages(args: List[str]) -> None:
     if conv is None:
         err_console.print(f"[red]Not found (or ambiguous):[/red] {id_prefix}")
         sys.exit(1)
-    msgs = store.get_messages(conv.id, limit)
+    msgs = store.get_messages(cast(str, conv.id), limit)
     if not msgs:
         console.print("[dim]No messages.[/dim]")
         return
     for m in msgs:
-        role_color = {"user": "cyan", "assistant": "green", "tool": "yellow"}.get(m.role, "white")
-        console.print(f"[bold {role_color}]{m.role}[/bold {role_color}]  [dim]{str(m.created_at)[:16]}[/dim]")
-        console.print(_render_parts(m.content))
+        role = cast(str, m.role)
+        role_color = {"user": "cyan", "assistant": "green", "tool": "yellow"}.get(role, "white")
+        console.print(f"[bold {role_color}]{role}[/bold {role_color}]  [dim]{str(cast(datetime, m.created_at))[:16]}[/dim]")
+        console.print(_render_parts(cast(str, m.content)))
         console.print()
 
 
@@ -192,8 +194,8 @@ def _cmd_export(args: List[str]) -> None:
     if len(args) > 1:
         dest = Path(args[1])
     else:
-        dest = paths.conversations_dir / _safe_filename(conv.title, conv.id)
-    out = store.export_markdown(conv.id, dest)
+        dest = paths.conversations_dir / _safe_filename(cast(str, conv.title), cast(str, conv.id))
+    out = store.export_markdown(cast(str, conv.id), dest)
     console.print(f"[green][OK][/green] Exported → [dim]{out}[/dim]")
 
 

@@ -1,6 +1,12 @@
+from typing import TYPE_CHECKING
+
 from .http import HTTPAdapter
 from .websocket import WebSocketAdapter
 from .waifu_node import WaifuNodeAdapter
+
+if TYPE_CHECKING:
+    from .discord import DiscordAdapter
+    from .telegram import TelegramAdapter
 
 __all__ = ["WebSocketAdapter", "HTTPAdapter", "WaifuNodeAdapter", "DiscordAdapter", "TelegramAdapter"]
 

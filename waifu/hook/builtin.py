@@ -16,6 +16,11 @@ class MemoryStore(Protocol):
     async def save(self, key: str, messages: List[BaseMessage]) -> None: ...
 
 
+@runtime_checkable
+class RelationshipMemoryStore(MemoryStore, Protocol):
+    async def get_relationship(self, key: str) -> str: ...
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -83,8 +88,8 @@ class MemoryHook(BaseHook):
         if history:
             ctx.messages = list(history)
 
-        if hasattr(self._store, "get_relationship"):
-            await self._inject_relationship(ctx)
+        if isinstance(self._store, RelationshipMemoryStore):
+            await self._inject_relationship(ctx, self._store)
 
         return ctx
 
@@ -107,13 +112,13 @@ class MemoryHook(BaseHook):
         await self._store.save(cid, merged)
         return ctx
 
-    async def _inject_relationship(self, ctx: HookContext) -> None:
+    async def _inject_relationship(self, ctx: HookContext, store: RelationshipMemoryStore) -> None:
         """從 store 取得關係層，注入 ctx.metadata["relationship"]"""
         if ctx.request.mode == ConversationMode.session:
             return
 
         direct_key = f"{ctx.request.source}:dm:{ctx.request.sender.user_id}"
-        relationship = await self._store.get_relationship(direct_key)
+        relationship = await store.get_relationship(direct_key)
         if relationship:
             ctx.metadata["relationship"] = relationship
 

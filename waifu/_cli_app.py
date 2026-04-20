@@ -25,14 +25,13 @@ async def _lifespan(app: FastAPI):
     waifu_node_adapter = None
     if _config.node is not None and _config.node.enabled:
         from waifu.gateway.adapters import WaifuNodeAdapter
-        from waifu.plugin.builtin import WaifuNodePlugin
 
         waifu_node_adapter = WaifuNodeAdapter(
             token=_config.node.token,
             invoke_timeout_ms=_config.node.invoke_timeout_ms,
             ping_interval_s=_config.node.ping_interval_s,
         )
-        await waifu.plugin(WaifuNodePlugin(waifu_node_adapter))
+        waifu.mount(waifu_node_adapter)
 
     include_routers(
         app,

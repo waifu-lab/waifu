@@ -1,5 +1,6 @@
 import sys
-from typing import List
+from datetime import datetime
+from typing import List, Optional, cast
 
 from rich.table import Table
 
@@ -81,8 +82,15 @@ def _cmd_list(args: List[str]) -> None:
     table.add_column("Command")
     table.add_column("Enabled")
     for j in jobs:
-        enabled = "[green][OK][/green]" if j.enabled else "[dim]–[/dim]"
-        table.add_row(j.id[:8], j.name, j.type, j.schedule, j.command[:40], enabled)
+        enabled = "[green][OK][/green]" if cast(bool, j.enabled) else "[dim]–[/dim]"
+        table.add_row(
+            cast(str, j.id)[:8],
+            cast(str, j.name),
+            cast(str, j.type),
+            cast(str, j.schedule),
+            cast(str, j.command)[:40],
+            enabled,
+        )
     console.print(table)
 
 
@@ -99,7 +107,7 @@ def _cmd_add(args: List[str]) -> None:
         sys.exit(1)
     store = _get_store()
     job = store.create(name=name, type=type_, schedule=schedule, command=command)
-    console.print(f"[green][OK][/green] Job [bold]{job.name}[/bold] created  [dim]{job.id[:8]}[/dim]")
+    console.print(f"[green][OK][/green] Job [bold]{cast(str, job.name)}[/bold] created  [dim]{cast(str, job.id)[:8]}[/dim]")
 
 
 def _cmd_remove(args: List[str]) -> None:
@@ -108,8 +116,8 @@ def _cmd_remove(args: List[str]) -> None:
         sys.exit(1)
     store = _get_store()
     job = _resolve(store, args[0])
-    store.remove(job.id)
-    console.print(f"[green][OK][/green] Removed [bold]{job.name}[/bold]")
+    store.remove(cast(str, job.id))
+    console.print(f"[green][OK][/green] Removed [bold]{cast(str, job.name)}[/bold]")
 
 
 def _cmd_run(args: List[str]) -> None:
@@ -120,19 +128,19 @@ def _cmd_run(args: List[str]) -> None:
 
     store = _get_store()
     job = _resolve(store, args[0])
-    run = store.start_run(job.id)
-    console.print(f"Running [bold]{job.name}[/bold]…")
+    run = store.start_run(cast(str, job.id))
+    console.print(f"Running [bold]{cast(str, job.name)}[/bold]…")
     try:
-        result = subprocess.run(job.command, shell=True, capture_output=True, text=True)
+        result = subprocess.run(cast(str, job.command), shell=True, capture_output=True, text=True)
         output = result.stdout + result.stderr
         status = "success" if result.returncode == 0 else "error"
-        store.finish_run(run.id, status=status, output=output)
+        store.finish_run(cast(str, run.id), status=status, output=output)
         if output:
             console.print(output.rstrip())
         style = "green" if status == "success" else "red"
         console.print(f"[{style}]Done ({status}, exit {result.returncode})[/{style}]")
     except Exception as exc:
-        store.finish_run(run.id, status="error", output=str(exc))
+        store.finish_run(cast(str, run.id), status="error", output=str(exc))
         err_console.print(f"[red]Error:[/red] {exc}")
         sys.exit(1)
 
@@ -143,8 +151,8 @@ def _cmd_enable(args: List[str]) -> None:
         sys.exit(1)
     store = _get_store()
     job = _resolve(store, args[0])
-    store.enable(job.id)
-    console.print(f"[green][OK][/green] Enabled [bold]{job.name}[/bold]")
+    store.enable(cast(str, job.id))
+    console.print(f"[green][OK][/green] Enabled [bold]{cast(str, job.name)}[/bold]")
 
 
 def _cmd_disable(args: List[str]) -> None:
@@ -153,8 +161,8 @@ def _cmd_disable(args: List[str]) -> None:
         sys.exit(1)
     store = _get_store()
     job = _resolve(store, args[0])
-    store.disable(job.id)
-    console.print(f"[yellow]–[/yellow] Disabled [bold]{job.name}[/bold]")
+    store.disable(cast(str, job.id))
+    console.print(f"[yellow]–[/yellow] Disabled [bold]{cast(str, job.name)}[/bold]")
 
 
 def _cmd_history(args: List[str]) -> None:
@@ -163,25 +171,26 @@ def _cmd_history(args: List[str]) -> None:
         sys.exit(1)
     store = _get_store()
     job = _resolve(store, args[0])
-    runs = store.history(job.id)
+    runs = store.history(cast(str, job.id))
     if not runs:
         console.print("[dim]No runs yet.[/dim]")
         return
-    table = Table(title=f"History: {job.name}", show_lines=False)
+    table = Table(title=f"History: {cast(str, job.name)}", show_lines=False)
     table.add_column("Run ID", style="dim", no_wrap=True)
     table.add_column("Started", style="dim")
     table.add_column("Finished", style="dim")
     table.add_column("Status")
     for r in runs:
+        status = cast(str, r.status)
         status_fmt = {
             "success": "[green]success[/green]",
             "error": "[red]error[/red]",
             "running": "[yellow]running[/yellow]",
-        }.get(r.status, r.status)
+        }.get(status, status)
         table.add_row(
-            r.id[:8],
-            str(r.started_at)[:16],
-            str(r.finished_at)[:16] if r.finished_at else "—",
+            cast(str, r.id)[:8],
+            str(cast(datetime, r.started_at))[:16],
+            str(cast(Optional[datetime], r.finished_at))[:16] if cast(Optional[datetime], r.finished_at) else "—",
             status_fmt,
         )
     console.print(table)

@@ -2,7 +2,7 @@ import argparse
 import logging
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Union
 from waifu.store.paths import AppPaths
 
 
@@ -48,7 +48,7 @@ def cmd_start(args: List[str]) -> None:
     )
 
 
-def _load_config(path: str):
+def _load_config(path: Union[str, Path]):
     from waifu.config import WaifuConfig
 
     config_path = Path(path)

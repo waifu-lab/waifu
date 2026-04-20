@@ -44,15 +44,15 @@ class RelationshipRepository:
 
     def update(self, character_id: str, user_id: str, **fields) -> None:
         Relationship.update(**fields).where(
-            Relationship.character_id == character_id,
+            Relationship.character == character_id,
             Relationship.user_id == user_id,
         ).execute()
 
     def get(self, character_id: str, user_id: str) -> Optional[Relationship]:
         return Relationship.get_or_none(
-            Relationship.character_id == character_id,
+            Relationship.character == character_id,
             Relationship.user_id == user_id,
         )
 
     def list_by_character(self, character_id: str) -> List[Relationship]:
-        return list(Relationship.select().where(Relationship.character_id == character_id))
+        return list(Relationship.select().where(Relationship.character == character_id))

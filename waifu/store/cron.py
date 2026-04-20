@@ -1,5 +1,7 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, cast
+
+from peewee import BooleanField, DateTimeField, ForeignKeyField
 
 from waifu.store.models import CronJob, CronRun
 
@@ -17,10 +19,14 @@ class CronStore:
         return CronJob.get_or_none(CronJob.name == name)
 
     def list(self) -> List[CronJob]:
-        return list(CronJob.select().order_by(CronJob.created_at.asc()))
+        return list(CronJob.select().order_by(cast(DateTimeField, CronJob.created_at).asc()))
 
     def list_enabled(self) -> List[CronJob]:
-        return list(CronJob.select().where(CronJob.enabled == True).order_by(CronJob.created_at.asc()))
+        return list(
+            CronJob.select()
+            .where(cast(BooleanField, CronJob.enabled) == True)
+            .order_by(cast(DateTimeField, CronJob.created_at).asc())
+        )
 
     def enable(self, id: str) -> bool:
         n = CronJob.update(enabled=True).where(CronJob.id == id).execute()
@@ -45,4 +51,9 @@ class CronStore:
         ).where(CronRun.id == run_id).execute()
 
     def history(self, job_id: str, limit: int = 20) -> List[CronRun]:
-        return list(CronRun.select().where(CronRun.job == job_id).order_by(CronRun.started_at.desc()).limit(limit))
+        return list(
+            CronRun.select()
+            .where(cast(ForeignKeyField, CronRun.job) == job_id)
+            .order_by(cast(DateTimeField, CronRun.started_at).desc())
+            .limit(limit)
+        )

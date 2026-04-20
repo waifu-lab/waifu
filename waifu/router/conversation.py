@@ -1,5 +1,7 @@
 import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional
+from typing import cast
 
 from fastapi import APIRouter, HTTPException
 
@@ -21,11 +23,11 @@ def make_conversation_router(conversation_store: ConversationStore) -> APIRouter
             convs = conversation_store.list(limit)
         return [
             {
-                "id": c.id,
-                "title": c.title,
-                "created_at": c.created_at.isoformat() + "Z",
-                "updated_at": c.updated_at.isoformat() + "Z",
-                "message_count": c.messages.count(),
+                "id": cast(str, c.id),
+                "title": cast(str, c.title),
+                "created_at": cast(datetime, c.created_at).isoformat() + "Z",
+                "updated_at": cast(datetime, c.updated_at).isoformat() + "Z",
+                "message_count": len(conversation_store.get_messages(cast(str, c.id), limit=0)),
             }
             for c in convs
         ]
@@ -36,11 +38,11 @@ def make_conversation_router(conversation_store: ConversationStore) -> APIRouter
         if c is None:
             raise HTTPException(status_code=404, detail=f"Conversation '{id}' not found")
         return {
-            "id": c.id,
-            "title": c.title,
-            "created_at": c.created_at.isoformat() + "Z",
-            "updated_at": c.updated_at.isoformat() + "Z",
-            "message_count": c.messages.count(),
+            "id": cast(str, c.id),
+            "title": cast(str, c.title),
+            "created_at": cast(datetime, c.created_at).isoformat() + "Z",
+            "updated_at": cast(datetime, c.updated_at).isoformat() + "Z",
+            "message_count": len(conversation_store.get_messages(cast(str, c.id), limit=0)),
         }
 
     @router.get("/{id}/messages")
@@ -52,15 +54,15 @@ def make_conversation_router(conversation_store: ConversationStore) -> APIRouter
         result = []
         for m in msgs:
             try:
-                parts = json.loads(m.content)
+                parts = json.loads(cast(str, m.content))
             except (json.JSONDecodeError, TypeError):
-                parts = [{"type": "text", "text": m.content}]
+                parts = [{"type": "text", "text": cast(str, m.content)}]
             result.append(
                 {
-                    "id": m.id,
-                    "role": m.role,
+                    "id": cast(str, m.id),
+                    "role": cast(str, m.role),
                     "parts": parts,
-                    "created_at": m.created_at.isoformat() + "Z",
+                    "created_at": cast(datetime, m.created_at).isoformat() + "Z",
                 }
             )
         return result

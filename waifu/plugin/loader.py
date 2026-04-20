@@ -51,6 +51,8 @@ class PluginLoader:
         spec = importlib.util.find_spec(module_path)
         if spec is None:
             raise ImportError(f"Cannot find module '{module_path}' for plugin '{plugin_name}'")
+        if spec.loader is None:
+            raise ImportError(f"Cannot load module '{module_path}' for plugin '{plugin_name}'")
 
         mod = importlib.util.module_from_spec(spec)
         sys.modules[module_path] = mod

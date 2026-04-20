@@ -3,13 +3,15 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Set
 
 from waifu_types import BaseGatewayAdapter, OutgoingResponse
 
 if TYPE_CHECKING:
     from fastapi.websockets import WebSocket
+
     from waifu.gateway.core import GatewayCore
+    from waifu.node.manager import NodeManager
 
 logger = logging.getLogger(__name__)
 
@@ -167,9 +169,11 @@ class NodeSession:
         msg_type = msg.get("type")
 
         if msg_type == "node_result":
-            fut = self._pending.get(msg.get("request_id"))
-            if fut and not fut.done():
-                fut.set_result(msg)
+            request_id = msg.get("request_id")
+            if isinstance(request_id, str):
+                fut = self._pending.get(request_id)
+                if fut and not fut.done():
+                    fut.set_result(msg)
 
         elif msg_type in ("node_skill_ready", "node_skill_sync_error"):
             fut = self._skill_pending.get(msg.get("skill_id", ""))
@@ -278,27 +282,10 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
 
         # node_id → NodeSession
         self._sessions: Dict[str, NodeSession] = {}
+        self._node_manager: Optional["NodeManager"] = None
 
-        # 由 WaifuNodePlugin 注入
-        self._on_node_connect: Optional[Callable[["NodeSession"], None]] = None
-        self._on_node_disconnect: Optional[Callable[[str], None]] = None
-        self._tool_executor: Optional[ToolExecutor] = None
-
-    # ── Plugin 注入 ──────────────────────────────────────────────────────────
-
-    def set_on_connect(self, cb: Callable[["NodeSession"], None]) -> None:
-        """node 連線並通過驗證後呼叫，傳入對應的 NodeSession"""
-        self._on_node_connect = cb
-
-    def set_on_disconnect(self, cb: Callable[[str], None]) -> None:
-        """node 斷線後呼叫，傳入 node_id"""
-        self._on_node_disconnect = cb
-
-    def set_tool_executor(self, executor: ToolExecutor) -> None:
-        """注入 waifu 工具執行器，供所有 node 的 node_tool_call 使用"""
-        self._tool_executor = executor
-        for session in self._sessions.values():
-            session._tool_executor = executor
+    def set_node_manager(self, manager: "NodeManager") -> None:
+        self._node_manager = manager
 
     # ── 公開 API ────────────────────────────────────────────────────────────
 
@@ -413,7 +400,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
             _ws=websocket,
             _invoke_timeout=self._invoke_timeout,
             _ping_interval=self._ping_interval,
-            _tool_executor=self._tool_executor,
+            _tool_executor=self._node_manager.make_tool_executor() if self._node_manager else None,
         )
         self._sessions[node_id] = session
 
@@ -434,8 +421,8 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
             len(self._sessions),
         )
 
-        if self._on_node_connect is not None:
-            self._on_node_connect(session)
+        if self._node_manager is not None:
+            self._node_manager.on_node_connect(session)
 
         session._ping_task = asyncio.create_task(session.ping_loop())
 
@@ -444,8 +431,8 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
         finally:
             self._sessions.pop(node_id, None)
             session.cancel_pending()
-            if self._on_node_disconnect is not None:
-                self._on_node_disconnect(node_id)
+            if self._node_manager is not None:
+                self._node_manager.on_node_disconnect(node_id)
             logger.info(
                 "waifu-node disconnected: node_id=%s total_nodes=%d",
                 node_id, len(self._sessions),

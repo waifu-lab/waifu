@@ -1,7 +1,7 @@
 import json
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
 from waifu.agent import AgentRunner, ContextBuilder
@@ -9,6 +9,7 @@ from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.gateway import GatewayCore
 from waifu.hook import HookPipeline, HookRegistry
 from waifu.hook.builtin import EmotionHook, LoggingHook, MemoryHook, TTSHook
+from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
 from waifu.plugin.loader import PluginLoader
 from waifu.service.character import CharacterService
@@ -151,6 +152,7 @@ class Waifu:
 
         # Plugin
         self._plugin_registry = PluginRegistry()
+        self._node_manager = NodeManager(self._plugin_registry)
         self._register_builtin_tools()
         self._plugin_manager = PluginManager(
             hook_registry=self._hook_registry,
@@ -212,6 +214,9 @@ class Waifu:
     def mount(self, adapter: BaseGatewayAdapter) -> "Waifu":
         """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP）"""
         self._gateway.mount(adapter)
+        from waifu.gateway.adapters.waifu_node import WaifuNodeAdapter
+        if isinstance(adapter, WaifuNodeAdapter):
+            self._node_manager.wire(adapter)
         return self
 
     def use(self, hook: BaseHook) -> "Waifu":
@@ -239,15 +244,22 @@ class Waifu:
 
         for row in self._mcp_repo.list_enabled():
             try:
-                cmd = json.loads(row.command) if row.command else None
-                await self._mcp_service.add(row.name, row.type, cmd, row.url, {})
+                row_command = cast(Optional[str], row.command)
+                cmd = json.loads(row_command) if row_command else None
+                await self._mcp_service.add(
+                    cast(str, row.name),
+                    cast(str, row.type),
+                    cmd,
+                    cast(Optional[str], row.url),
+                    {},
+                )
             except Exception:
                 logger.exception("Failed to restore MCP server: %s", row.name)
 
         for row in self._plugin_repo.list_enabled():
             try:
-                config = json.loads(row.config_json)
-                plugin = self._plugin_loader.resolve(row.plugin_name)
+                config = json.loads(cast(str, row.config_json))
+                plugin = self._plugin_loader.resolve(cast(str, row.plugin_name))
                 await self._plugin_manager.load(plugin, config)
             except Exception:
                 logger.exception("Failed to restore plugin: %s", row.name)

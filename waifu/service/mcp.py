@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from waifu.plugin import PluginManager
 from waifu.plugin.builtin import MCPPlugin
@@ -32,7 +32,12 @@ class MCPService:
         row = self._repo.get(name)
         if row is None:
             raise KeyError(f"MCP server '{name}' not found")
-        adapter = self._build_adapter(row.type, json.loads(row.command) if row.command else None, row.url)
+        row_command = cast(Optional[str], row.command)
+        adapter = self._build_adapter(
+            cast(str, row.type),
+            json.loads(row_command) if row_command else None,
+            cast(Optional[str], row.url),
+        )
         await self._pm.load(MCPPlugin(name, adapter))
         self._repo.set_enabled(name, True)
 
@@ -46,4 +51,8 @@ class MCPService:
     def _build_adapter(self, type: str, command, url: Optional[str]):
         from waifu.mcp import SSEMCPAdapter, StdioMCPAdapter
 
-        return StdioMCPAdapter(command) if type == "stdio" else SSEMCPAdapter(url)
+        if type == "stdio":
+            return StdioMCPAdapter(command)
+        if url is None:
+            raise ValueError("SSE MCP adapter requires a non-empty url")
+        return SSEMCPAdapter(url)

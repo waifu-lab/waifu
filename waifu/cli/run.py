@@ -101,24 +101,26 @@ async def _run_async(prompt: str, ns: argparse.Namespace) -> None:
     context_builder = ContextBuilder(context_cfg)
     agent_runner = AgentRunner(provider)
 
-    from waifu.gateway.session import Session
+    from waifu.gateway.session import SessionManager
 
-    session = Session(conversation_id="cli:run")
+    session = SessionManager().get_or_create("cli:run")
 
     ctx = HookContext(request=request, session=session, messages=[])
-    agent_input = await context_builder.build(ctx, plugin_registry)
+    system_prompt = context_builder.build_system_prompt(ctx)
+    context_manager = context_builder.build_context_manager(ctx)
+    tools = plugin_registry.get_all_tools()
 
     if ns.verbose:
         console.print(f"[dim]model:[/dim] {provider_cfg.model}  [dim]temp:[/dim] {provider_cfg.temperature}")
         console.print()
 
-    result = await agent_runner.run(ctx, agent_input)
+    result = await agent_runner.run(ctx, system_prompt, tools, context_manager)
 
     final = "".join(accumulated)
     if not final:
         for msg in reversed(result.messages):
-            if msg.get("role") == "assistant" and msg.get("content"):
-                final = msg["content"]
+            if msg.role == "assistant" and msg.content:
+                final = msg.content
                 break
 
     if ns.no_stream:

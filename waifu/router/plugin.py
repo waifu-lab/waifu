@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel as PydanticBaseModel
@@ -35,7 +35,7 @@ def make_plugin_router(plugin_service: PluginService) -> APIRouter:
     async def install_plugin(body: InstallPluginRequest) -> Dict[str, str]:
         try:
             row = await plugin_service.install(body.plugin_name, body.config or {})
-            return {"status": "installed", "name": row.name}
+            return {"status": "installed", "name": cast(str, row.name)}
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=str(e)) from e
         except Exception as e:
