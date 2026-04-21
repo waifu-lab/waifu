@@ -31,10 +31,12 @@ class NodeManager:
         adapter.set_node_manager(self)
 
     def on_node_connect(self, session: "NodeSession") -> None:
-        suffix = f"@{session.display_name or session.node_id}"
+        raw = (session.display_name or session.node_id).replace("-", "_").replace(" ", "_")
+        suffix = f"__{raw}"
 
         existing_suffixes = {
-            f"@{s.display_name or s.node_id}" for nid, s in self._sessions.items() if nid != session.node_id
+            f"__{(s.display_name or s.node_id).replace('-', '_').replace(' ', '_')}"
+            for nid, s in self._sessions.items() if nid != session.node_id
         }
         if suffix in existing_suffixes:
             logger.warning(
