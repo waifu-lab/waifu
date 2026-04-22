@@ -29,7 +29,8 @@ def _safe_filename(title: str, id: str) -> str:
     """Build a filesystem-safe filename from title + short id."""
     slug = re.sub(r"[^\w\s-]", "", title).strip()
     slug = re.sub(r"[\s_]+", "-", slug)[:40]
-    return f"{slug}-{id[:8]}.md" if slug else f"{id[:8]}.md"
+    safe_id = re.sub(r'[<>:"/\\|?*]', "-", id)[:36]
+    return f"{slug}-{safe_id}.md" if slug else f"{safe_id}.md"
 
 
 class ConversationStore:
@@ -79,10 +80,13 @@ class ConversationStore:
         )
         return list(
             Conversation.select()
-            .where(cast(CharField, Conversation.title).contains(query) | cast(CharField, Conversation.id).in_(matching_ids))
+            .where(
+                cast(CharField, Conversation.title).contains(query) | cast(CharField, Conversation.id).in_(matching_ids)
+            )
             .order_by(cast(DateTimeField, Conversation.updated_at).desc())
         )
 
+    # FIXME: 壓縮絕對不是這樣處理的
     def compact(self, id: str) -> int:
         """Delete all but the last system message and last N exchanges.
         Returns number of messages deleted."""

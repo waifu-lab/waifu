@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from waifu import Waifu, __version__
 from waifu.config import WaifuConfig
@@ -32,7 +33,6 @@ async def _lifespan(app: FastAPI):
             ping_interval_s=_config.node.ping_interval_s,
         )
         waifu.mount(waifu_node_adapter)
-
     include_routers(
         app,
         ws_adapter=ws_adapter,
@@ -53,9 +53,11 @@ async def _lifespan(app: FastAPI):
     )
 
     app.state.waifu = waifu
+
     await waifu.start()
 
     yield
 
 
 app = FastAPI(title="Waifu", version=__version__, lifespan=_lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])

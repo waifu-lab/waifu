@@ -179,6 +179,10 @@ class EmotionHook(BaseHook):
         self._emotion_map = emotion_map or _DEFAULT_EMOTION_MAP
         self._default_emotion = default_emotion
 
+    @property
+    def capabilities(self) -> dict:
+        return {"emotions": sorted(set(self._emotion_map.values()))}
+
     async def post(self, ctx: HookContext) -> HookContext:
         if not ctx.response or not ctx.request.live2d:
             return ctx
@@ -273,7 +277,7 @@ class TTSHook(BaseHook):
             return ctx
 
         try:
-            result = await self._voice.synthesize(ctx.response)
+            result = await self._voice.synthesize(ctx.response, need_lipsync=ctx.request.need_lipsync)
             events = self._voice.build_audio_events(result)
             ctx.events.extend(events)
         except Exception:

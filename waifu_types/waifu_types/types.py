@@ -80,7 +80,8 @@ class IncomingRequest(BaseModel):
     content: str
     attachments: List[Attachment] = []
     metadata: Dict[str, Any] = {}
-    live2d: bool = False  # True 時啟用情緒解析、TTS、lipsync 等 Live2D 功能
+    live2d: bool = False  # True 時啟用情緒解析、TTS 等 Live2D 功能
+    need_lipsync: bool = False  # True 時後端計算並送出 viseme（模型無原生 lipsync 時由前端設定）
     # reply_fn(response: OutgoingResponse) 或 reply_fn(chunk=str) for streaming
     reply_fn: Callable
 

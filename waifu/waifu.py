@@ -232,9 +232,17 @@ class Waifu:
     async def start(self) -> None:
         """啟動所有已掛載的 Adapter，並從 DB 恢復持久化設定"""
         self._started_at = time.time()
+        self._collect_capabilities()
         await self._restore_from_db()
         if not self._localmode:
             await self._gateway.start()
+
+    def _collect_capabilities(self) -> None:
+        """收集所有 hook/plugin 的 capabilities 寫入 GatewayCore"""
+        for hook in self._hook_registry.hooks:
+            caps = getattr(hook, "capabilities", None)
+            if isinstance(caps, dict):
+                self._gateway.capabilities.update(caps)
 
     async def _restore_from_db(self) -> None:
         """從 DB 恢復所有持久化設定到 runtime"""

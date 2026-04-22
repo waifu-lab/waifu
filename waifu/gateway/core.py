@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from waifu_types import BaseGatewayAdapter, IncomingRequest, OutgoingResponse
 
@@ -24,6 +24,7 @@ class GatewayCore:
         self._lane_manager = LaneManager(max_queue_size=lane_max_queue)
         self._dispatch_handler: Optional[Callable[[IncomingRequest], Awaitable[OutgoingResponse]]] = None
         self._started: bool = False
+        self.capabilities: Dict[str, Any] = {}
 
     def mount(self, adapter: BaseGatewayAdapter) -> "GatewayCore":
         self._adapters.append(adapter)

@@ -34,9 +34,9 @@ class VoiceService:
             raise RuntimeError("VoiceService: STT provider not configured")
         return await self._stt.transcribe(audio, format=format, language=language)
 
-    async def synthesize(self, text: str) -> "SynthesisResult":
+    async def synthesize(self, text: str, need_lipsync: bool = False) -> "SynthesisResult":
         """
-        文字轉語音，同時產生估算時長與口型事件
+        文字轉語音；need_lipsync=True 時額外計算 viseme 事件
 
         :raises RuntimeError: 若未設定 TTS provider
         :return: SynthesisResult（audio_bytes, format, duration_ms, lipsync_events）
@@ -47,7 +47,7 @@ class VoiceService:
         audio_bytes = await self._tts.synthesize(text)
         fmt = self._tts.response_format
         duration_ms = estimate_duration_ms(audio_bytes, fmt)
-        visemes = build_lipsync_events(text, duration_ms, fps=self._lipsync_fps)
+        visemes = build_lipsync_events(text, duration_ms, fps=self._lipsync_fps) if need_lipsync else []
 
         return SynthesisResult(
             audio_bytes=audio_bytes,
@@ -60,12 +60,10 @@ class VoiceService:
         """
         將 SynthesisResult 轉為 ctx.events 格式的事件列表
 
-        回傳兩個事件：
-        { event: "audio",   data: { audio: "<b64>", format: "mp3", duration_ms: N } }
-        { event: "lipsync", data: { visemes: [...] } }
+        一律送 audio 事件；lipsync_events 非空時才附加 lipsync 事件
         """
         audio_b64 = base64.b64encode(result.audio_bytes).decode()
-        return [
+        events: List[Dict] = [
             {
                 "event": "audio",
                 "data": {
@@ -73,12 +71,11 @@ class VoiceService:
                     "format": result.format,
                     "duration_ms": result.duration_ms,
                 },
-            },
-            {
-                "event": "lipsync",
-                "data": {"visemes": result.lipsync_events},
-            },
+            }
         ]
+        if result.lipsync_events:
+            events.append({"event": "lipsync", "data": {"visemes": result.lipsync_events}})
+        return events
 
 
 class SynthesisResult:

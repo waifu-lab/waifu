@@ -60,6 +60,9 @@ class WebSocketAdapter(BaseGatewayAdapter):
         await websocket.accept()
         session_token = str(uuid.uuid4())
 
+        capabilities = self._core.capabilities if self._core is not None else {}
+        await websocket.send_json({"type": "connected", "session_token": session_token, **capabilities})
+
         try:
             while True:
                 data: Dict[str, Any] = await websocket.receive_json()
@@ -69,8 +72,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     continue
 
                 request_id: str = data.get("request_id", str(uuid.uuid4()))
-                raw_cid: str = data.get("conversation_id") or session_token
-                conversation_id = f"ws:{raw_cid}" if not raw_cid.startswith("ws:") else raw_cid
+                conversation_id: str = data.get("conversation_id") or session_token
 
                 # ── 語音輸入：STT → 轉為文字 ──────────────────────────────
                 if msg_type == "voice":
@@ -100,6 +102,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     source=self.name,
                     content=content,
                     live2d=bool(data.get("live2d", False)),
+                    need_lipsync=bool(data.get("need_lipsync", False)),
                     reply_fn=reply_fn,
                 )
 

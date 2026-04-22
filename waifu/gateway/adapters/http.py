@@ -38,7 +38,7 @@ class HTTPAdapter(BaseGatewayAdapter):
             raise RuntimeError("HTTPAdapter not started")
 
         request_id = str(uuid.uuid4())
-        conversation_id = f"http:{body.conversation_id}"
+        conversation_id = body.conversation_id or str(uuid.uuid4())
         queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
         async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:

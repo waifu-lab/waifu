@@ -21,14 +21,15 @@ class AgentRunner:
         tools: List["Tool"],
         context_manager: ContextManager,
     ) -> AgentResult:
+        async def _on_chunk(chunk: str) -> None:
+            await ctx.request.reply_fn(chunk=chunk)
+
         agent = Agent(
             AgentConfig(
                 provider=self.provider,
                 system_prompt=system_prompt,
                 tools=tools,
-                callbacks=AgentCallbacks(
-                    assistant_message=lambda msg: ctx.request.reply_fn(chunk=msg.content or ""),
-                ),
+                callbacks=AgentCallbacks(on_chunk=_on_chunk),
                 session_id=ctx.request.conversation_id,
                 context_manager=context_manager,
             )
