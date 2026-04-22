@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import time
@@ -24,6 +25,7 @@ from waifu.store.repositories import (
     MCPRepository,
     PluginRepository,
     RelationshipRepository,
+    TokenAnalyticsRepository,
 )
 from waifu.voice import VoiceService
 from waifu_types import (
@@ -54,6 +56,7 @@ def _to_waifu_message(m: Any) -> BaseMessage:
     if role == "system":
         return SystemMessage(content=d.get("content", ""))
     return GenericMessage(**d)
+
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +185,7 @@ class Waifu:
         self._mcp_service = MCPService(self._mcp_repo, self._plugin_manager)
         self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
         self._character_service = CharacterService(self._character_repo, self._relationship_repo)
+        self._token_analytics = TokenAnalyticsRepository()
 
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
@@ -215,6 +219,7 @@ class Waifu:
         """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP）"""
         self._gateway.mount(adapter)
         from waifu.gateway.adapters.waifu_node import WaifuNodeAdapter
+
         if isinstance(adapter, WaifuNodeAdapter):
             self._node_manager.wire(adapter)
         return self
@@ -301,6 +306,10 @@ class Waifu:
         return self._character_service
 
     @property
+    def token_analytics(self) -> TokenAnalyticsRepository:
+        return self._token_analytics
+
+    @property
     def conversation_store(self) -> ConversationStore:
         return self._conversation_store
 
@@ -352,7 +361,33 @@ class Waifu:
         system_prompt = self._context_builder.build_system_prompt(ctx)
         context_manager = self._context_builder.build_context_manager(ctx)
         tools = self._plugin_registry.get_all_tools()
-        result = await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
+
+        try:
+            result = await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
+        except asyncio.CancelledError:
+            logger.warning(
+                "Request %s cancelled (client disconnected), writing interrupt placeholder",
+                request.request_id,
+            )
+            placeholder = "〔已中斷〕"
+            self._conversation_store.add_llm_message(
+                request.conversation_id,
+                {"role": "assistant", "content": placeholder},
+            )
+            raise  # 繼續往上傳遞，讓 adapter 正常收尾
+        except Exception as exc:
+            logger.exception(
+                "AgentRunner failed for request %s, writing fallback message",
+                request.request_id,
+            )
+            # 保持 transcript 閉環
+            fallback_content = "系統發生錯誤，請稍後再試"
+            self._conversation_store.add_llm_message(
+                request.conversation_id,
+                {"role": "assistant", "content": fallback_content},
+            )
+            ctx.response = fallback_content
+            return self._build_response(request, content=fallback_content, ctx=ctx)
 
         final_content = ""
         for msg in reversed(result.messages):
@@ -366,14 +401,29 @@ class Waifu:
         # result.messages = windowed_history + user_msg + new_msgs
         # new_msgs starts after history_len (windowed) + 1 (user msg)
         history_len = len(session.history)
-        new_shuvi_msgs = result.messages[history_len + 1:]
+        new_shuvi_msgs = result.messages[history_len + 1 :]
         new_waifu_msgs = [_to_waifu_message(m) for m in new_shuvi_msgs]
         session.add_messages(new_waifu_msgs)
-        for msg in new_waifu_msgs:
+
+        # Token usage from this run — only attached to the final assistant message
+        usage = result.trace.token_usage
+        assistant_count = sum(1 for m in new_waifu_msgs if m.role == "assistant")
+        for i, msg in enumerate(new_waifu_msgs):
             if msg.role != "user":
+                # 只把 token 數掛在最後一條 assistant 訊息上（避免重複累計）
+                is_last_assistant = msg.role == "assistant" and (
+                    assistant_count == 0
+                    or i
+                    == next(
+                        (j for j in range(len(new_waifu_msgs) - 1, -1, -1) if new_waifu_msgs[j].role == "assistant"),
+                        -1,
+                    )
+                )
                 self._conversation_store.add_llm_message(
                     request.conversation_id,
                     msg.model_dump(exclude_none=True),
+                    input_tokens=usage.input if is_last_assistant else None,
+                    output_tokens=usage.output if is_last_assistant else None,
                 )
 
         ctx = await self._hook_pipeline.run_post(ctx)

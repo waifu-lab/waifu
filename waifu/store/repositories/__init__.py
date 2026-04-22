@@ -1,3 +1,4 @@
+from .analytics import TokenAnalyticsRepository
 from .character import CharacterRepository, RelationshipRepository
 from .config import AppConfigRepository
 from .mcp import MCPRepository
@@ -9,4 +10,5 @@ __all__ = [
     "AppConfigRepository",
     "CharacterRepository",
     "RelationshipRepository",
+    "TokenAnalyticsRepository",
 ]

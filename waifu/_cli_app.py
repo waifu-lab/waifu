@@ -46,6 +46,7 @@ async def _lifespan(app: FastAPI):
         plugin_registry=waifu.plugin_registry,
         plugin_manager=waifu.plugin_manager,
         session_manager=waifu.gateway.session_manager,
+        token_analytics=waifu.token_analytics,
         get_started_at=lambda: waifu.started_at,
         voice_enabled=waifu.voice_service is not None,
         stt_enabled=waifu.voice_service is not None and waifu.voice_service.has_stt,

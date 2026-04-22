@@ -15,6 +15,8 @@ class ContextConfig(BaseModel):
     max_history_messages: int = 20
     history_strategy: Literal["sliding", "summary", "full"] = "sliding"
     soul_content: Optional[str] = None  # soul.md content
+    context_token_budget: Optional[int] = None  # None = 不限制；粗估 chars/4
+    compact_threshold: float = 0.85  # 超過 budget * threshold 時觸發額外截斷
 
 
 class ProviderConfig(BaseModel):

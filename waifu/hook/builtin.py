@@ -98,18 +98,13 @@ class MemoryHook(BaseHook):
             return ctx
 
         cid = ctx.request.conversation_id
-        existing = await self._store.load(cid)
 
-        new_messages: List[BaseMessage] = [
-            UserMessage(content=ctx.request.content),
-            AssistantMessage(content=ctx.response),
-        ]
-        merged = (existing or []) + new_messages
+        full_history = list(ctx.session.history)
 
-        if len(merged) > self._max_history:
-            merged = merged[-self._max_history:]
+        if len(full_history) > self._max_history:
+            full_history = full_history[-self._max_history :]
 
-        await self._store.save(cid, merged)
+        await self._store.save(cid, full_history)
         return ctx
 
     async def _inject_relationship(self, ctx: HookContext, store: RelationshipMemoryStore) -> None:

@@ -1,12 +1,12 @@
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
 
-from peewee import CharField, DateTimeField, ForeignKeyField, TextField
+from peewee import CharField, DateTimeField, ForeignKeyField, IntegerField, TextField
 
-from waifu.store.models import Conversation, Message
+from waifu.store.models import Conversation, DailyTokenUsage, Message
 
 
 def _parts_to_text(parts: List[Dict[str, Any]]) -> str:
@@ -121,6 +121,8 @@ class ConversationStore:
         parts: Union[List[Dict[str, Any]], str],
         *,
         message_id: Optional[str] = None,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
     ) -> Message:
         """Store a message. `parts` may be a list of part objects or a plain string
         (which is wrapped as ``[{"type": "text", "text": parts}]`` automatically)."""
@@ -134,13 +136,59 @@ class ConversationStore:
         }
         if message_id is not None:
             kwargs["id"] = message_id
+        if input_tokens is not None:
+            kwargs["input_tokens"] = input_tokens
+        if output_tokens is not None:
+            kwargs["output_tokens"] = output_tokens
         msg = Message.create(**kwargs)
         Conversation.update(updated_at=datetime.utcnow()).where(Conversation.id == conversation_id).execute()
+        if (input_tokens or 0) + (output_tokens or 0) > 0:
+            self._upsert_daily_tokens(conversation_id, input_tokens or 0, output_tokens or 0)
         if self._conversations_dir is not None:
             self._sync_markdown(conversation_id)
         return msg
 
-    def add_llm_message(self, conversation_id: str, llm_msg: Dict[str, Any]) -> Message:
+    def _upsert_daily_tokens(self, conversation_id: str, input_tokens: int, output_tokens: int) -> None:
+        """Upsert 當日 token 彙總（per-conversation + 全域）"""
+        today = datetime.now(timezone.utc).date()
+        total = input_tokens + output_tokens
+
+        for cid in (conversation_id, None):
+            existing = (
+                DailyTokenUsage.select()
+                .where(
+                    DailyTokenUsage.date == today,
+                    DailyTokenUsage.conversation_id == cid,
+                )
+                .first()
+            )
+            if existing is not None:
+                DailyTokenUsage.update(
+                    input_tokens=cast(IntegerField, DailyTokenUsage.input_tokens) + input_tokens,
+                    output_tokens=cast(IntegerField, DailyTokenUsage.output_tokens) + output_tokens,
+                    total_tokens=cast(IntegerField, DailyTokenUsage.total_tokens) + total,
+                    updated_at=datetime.utcnow(),
+                ).where(
+                    DailyTokenUsage.date == today,
+                    DailyTokenUsage.conversation_id == cid,
+                ).execute()
+            else:
+                DailyTokenUsage.create(
+                    date=today,
+                    conversation_id=cid,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    total_tokens=total,
+                )
+
+    def add_llm_message(
+        self,
+        conversation_id: str,
+        llm_msg: Dict[str, Any],
+        *,
+        input_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+    ) -> Message:
         """Convert a shuvi/LLM-format message dict and persist it.
 
         Handles:
@@ -179,7 +227,13 @@ class ConversationStore:
                     }
                 )
 
-        return self.add_message(conversation_id, role, parts)
+        return self.add_message(
+            conversation_id,
+            role,
+            parts,
+            input_tokens=input_tokens if role == "assistant" else None,
+            output_tokens=output_tokens if role == "assistant" else None,
+        )
 
     def get_messages(self, conversation_id: str, limit: int = 100) -> List[Message]:
         q = (

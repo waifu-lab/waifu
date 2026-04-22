@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from waifu.service.mcp import MCPService
     from waifu.service.plugin import PluginService
     from waifu.store.conversation import ConversationStore
+    from waifu.store.repositories.analytics import TokenAnalyticsRepository
 
 
 def include_routers(
@@ -31,6 +32,7 @@ def include_routers(
     plugin_registry: "PluginRegistry | None" = None,
     plugin_manager: "PluginManager | None" = None,
     session_manager: "SessionManager | None" = None,
+    token_analytics: "TokenAnalyticsRepository | None" = None,
     get_started_at: "Callable[[], float] | None" = None,
     voice_enabled: bool = False,
     stt_enabled: bool = False,
@@ -84,6 +86,11 @@ def include_routers(
         from .session import make_session_router
 
         app.include_router(make_session_router(session_manager))
+
+    if token_analytics is not None:
+        from .analytics import make_analytics_router
+
+        app.include_router(make_analytics_router(token_analytics))
 
     if (
         mcp_service is not None

@@ -5,8 +5,10 @@ from pathlib import Path
 from peewee import (
     BooleanField,
     CharField,
+    DateField,
     DateTimeField,
     ForeignKeyField,
+    IntegerField,
     Model,
     SqliteDatabase,
     TextField,
@@ -46,10 +48,28 @@ class Message(BaseModel):
     )
     role = CharField()  # user | assistant | system | tool
     content = TextField()
+    input_tokens = IntegerField(null=True)   # assistant 訊息的 LLM input token 數
+    output_tokens = IntegerField(null=True)  # assistant 訊息的 LLM output token 數
     created_at = DateTimeField(default=datetime.utcnow)
 
     class Meta:
         table_name = "messages"
+
+
+class DailyTokenUsage(BaseModel):
+    """每日 token 使用量彙總（UTC date）"""
+
+    id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    date = DateField()                        # UTC date, e.g. 2026-04-23
+    conversation_id = CharField(null=True)    # None = 全域彙總
+    input_tokens = IntegerField(default=0)
+    output_tokens = IntegerField(default=0)
+    total_tokens = IntegerField(default=0)
+    updated_at = DateTimeField(default=datetime.utcnow)
+
+    class Meta:
+        table_name = "daily_token_usage"
+        indexes = ((("date", "conversation_id"), True),)  # unique together
 
 
 class CronJob(BaseModel):
@@ -148,7 +168,7 @@ class Relationship(BaseModel):
         return super().save(*args, **kwargs)
 
 
-_TABLES = [Conversation, Message, CronJob, CronRun, PluginConfig, MCPServer, AppConfig, Character, Relationship]
+_TABLES = [Conversation, Message, DailyTokenUsage, CronJob, CronRun, PluginConfig, MCPServer, AppConfig, Character, Relationship]
 
 
 class Database:
