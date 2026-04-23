@@ -20,6 +20,7 @@ class Attachment(BaseModel):
     filename: str
     content_type: str
     data: bytes = b""
+    url: Optional[str] = None  # 遠端 URL（Discord/Telegram CDN），與 data 二擇一
 
 
 class IncomingRequest(BaseModel):

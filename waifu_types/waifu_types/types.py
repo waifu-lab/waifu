@@ -26,6 +26,10 @@ class BaseMessage(BaseModel):
 
 class UserMessage(BaseMessage):
     role: Literal["user"] = "user"
+    content: List[Dict[str, Any]]
+
+    def model_dump(self, *, exclude_none: bool = False) -> Dict[str, Any]:
+        return {"role": self.role, "content": self.content}
 
 
 class AssistantMessage(BaseMessage):
@@ -67,6 +71,7 @@ class Attachment(BaseModel):
     filename: str
     content_type: str
     data: bytes = b""
+    url: Optional[str] = None  # 遠端 URL（Discord/Telegram CDN），與 data 二擇一
 
 
 class IncomingRequest(BaseModel):

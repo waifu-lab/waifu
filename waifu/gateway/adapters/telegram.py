@@ -2,7 +2,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from waifu_types import BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
@@ -31,9 +31,7 @@ class TelegramAdapter(BaseGatewayAdapter):
         try:
             import telegram  # noqa: F401
         except ImportError as e:
-            raise ImportError(
-                "python-telegram-bot is required: pip install python-telegram-bot"
-            ) from e
+            raise ImportError("python-telegram-bot is required: pip install python-telegram-bot") from e
 
         self._token = token
         self._trigger_command = trigger_command
@@ -46,6 +44,7 @@ class TelegramAdapter(BaseGatewayAdapter):
         import asyncio
 
         from telegram.ext import ApplicationBuilder, MessageHandler, filters
+        from telegram import Update
 
         self._core = core
         app = ApplicationBuilder().token(self._token).build()
@@ -53,7 +52,7 @@ class TelegramAdapter(BaseGatewayAdapter):
 
         adapter = self
 
-        async def on_message(update: object, context: object) -> None:
+        async def on_message(update: Update, context: object) -> None:
             from telegram import Update
 
             if not isinstance(update, Update) or update.message is None:
@@ -90,6 +89,28 @@ class TelegramAdapter(BaseGatewayAdapter):
             stream_edit = adapter._stream_edit
             reply_fn = _make_telegram_reply_fn(msg, stream_edit=stream_edit)
 
+            # ── 附件：圖片（photo）或文件（document）─────────────────────
+            attachments: list[Attachment] = []
+            try:
+                if msg.photo:
+                    # 選最大尺寸（最後一個）
+                    largest = msg.photo[-1]
+                    tg_file = await context.bot.get_file(largest.file_id)
+                    data = bytes(await tg_file.download_as_bytearray())
+                    attachments.append(Attachment(filename="photo.jpg", content_type="image/jpeg", data=data))
+                elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
+                    tg_file = await context.bot.get_file(msg.document.file_id)
+                    data = bytes(await tg_file.download_as_bytearray())
+                    attachments.append(
+                        Attachment(
+                            filename=msg.document.file_name or "document",
+                            content_type=msg.document.mime_type,
+                            data=data,
+                        )
+                    )
+            except Exception:
+                logger.warning("Failed to download Telegram attachment, skipping")
+
             request = IncomingRequest(
                 request_id=str(uuid.uuid4()),
                 conversation_id=conversation_id,
@@ -97,6 +118,7 @@ class TelegramAdapter(BaseGatewayAdapter):
                 sender=sender,
                 source=adapter.name,
                 content=text,
+                attachments=attachments,
                 reply_fn=reply_fn,
             )
 
@@ -105,6 +127,8 @@ class TelegramAdapter(BaseGatewayAdapter):
 
         app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
         app.add_handler(MessageHandler(filters.COMMAND, on_message))
+        app.add_handler(MessageHandler(filters.PHOTO, on_message))
+        app.add_handler(MessageHandler(filters.Document.IMAGE, on_message))
 
         async def _run() -> None:
             await app.initialize()

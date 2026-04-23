@@ -48,7 +48,9 @@ def _to_waifu_message(m: Any) -> BaseMessage:
     d = m.model_dump(exclude_none=True)
     role = d.get("role", "")
     if role == "user":
-        return UserMessage(content=d.get("content", ""))
+        raw = d.get("content", "")
+        parts = raw if isinstance(raw, list) else [{"type": "text", "text": raw}]
+        return UserMessage(content=parts)
     if role == "assistant":
         return AssistantMessage(content=d.get("content"), tool_calls=d.get("tool_calls"))
     if role == "tool":
@@ -391,7 +393,7 @@ class Waifu:
 
         final_content = ""
         for msg in reversed(result.messages):
-            if msg.role == "assistant" and msg.content:
+            if msg.role == "assistant" and isinstance(msg.content, str) and msg.content:
                 final_content = msg.content
                 break
 

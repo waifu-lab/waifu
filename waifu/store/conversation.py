@@ -208,9 +208,14 @@ class ConversationStore:
                 }
             )
         else:
-            text = llm_msg.get("content") or ""
-            if text:
-                parts.append({"type": "text", "text": text})
+            raw = llm_msg.get("content") or ""
+            if isinstance(raw, list):
+                # multimodal parts — extract text parts, ignore image_url etc.
+                for p in raw:
+                    if isinstance(p, dict) and p.get("type") == "text":
+                        parts.append({"type": "text", "text": p.get("text", "")})
+            elif raw:
+                parts.append({"type": "text", "text": raw})
             for tc in llm_msg.get("tool_calls", []):
                 fn = tc.get("function", {})
                 raw_args = fn.get("arguments", "{}")

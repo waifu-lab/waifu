@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from waifu_types import BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -20,7 +20,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
     FastAPI WebSocket Adapter — SESSION 模式
 
     支援兩種輸入訊息：
-      { type: "chat",  conversation_id?, request_id?, content }
+      { type: "chat",  conversation_id?, request_id?, content, attachments?: [{filename, content_type, data: "<b64>"}] }
       { type: "voice", conversation_id?, request_id?, audio: "<b64>", format: "webm" }
 
     voice 訊息會先呼叫 VoiceService.transcribe() 轉為文字，再以正常 chat 流程處理
@@ -92,6 +92,22 @@ class WebSocketAdapter(BaseGatewayAdapter):
                 else:
                     content = data.get("content", "")
 
+                # ── 附件解析（圖片等）─────────────────────────────────────
+                attachments: list[Attachment] = []
+                for raw in data.get("attachments", []):
+                    try:
+                        raw_data = base64.b64decode(raw.get("data", "")) if raw.get("data") else b""
+                        attachments.append(
+                            Attachment(
+                                filename=raw.get("filename", ""),
+                                content_type=raw.get("content_type", "application/octet-stream"),
+                                data=raw_data,
+                                url=raw.get("url") or None,
+                            )
+                        )
+                    except Exception:
+                        logger.warning("Failed to parse attachment in WebSocket message, skipping")
+
                 reply_fn = _make_ws_reply_fn(websocket, request_id)
 
                 request = IncomingRequest(
@@ -101,6 +117,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     sender=Sender(user_id=f"ws:{session_token}", display_name="User"),
                     source=self.name,
                     content=content,
+                    attachments=attachments,
                     live2d=bool(data.get("live2d", False)),
                     need_lipsync=bool(data.get("need_lipsync", False)),
                     reply_fn=reply_fn,

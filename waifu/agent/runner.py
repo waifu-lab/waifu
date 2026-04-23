@@ -1,4 +1,5 @@
 import logging
+import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional
 
@@ -48,7 +49,11 @@ class AgentRunner:
         context_manager: ContextManager,
     ) -> AgentResult:
         async def _on_chunk(chunk: str) -> None:
-            await ctx.request.reply_fn(chunk=chunk)
+            fn = ctx.request.reply_fn
+            if inspect.iscoroutinefunction(fn):
+                await fn(chunk=chunk)
+            else:
+                fn(chunk=chunk)
 
         cid = ctx.request.conversation_id
         state = self.get_state(cid)

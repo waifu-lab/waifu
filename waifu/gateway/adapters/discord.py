@@ -2,7 +2,7 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from waifu_types import BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
@@ -84,6 +84,15 @@ class DiscordAdapter(BaseGatewayAdapter):
 
             reply_fn = _make_discord_reply_fn(message, stream_edit=self._stream_edit)
 
+            attachments = [
+                Attachment(
+                    filename=att.filename,
+                    content_type=att.content_type or "application/octet-stream",
+                    url=att.url,
+                )
+                for att in message.attachments
+            ]
+
             request = IncomingRequest(
                 request_id=str(uuid.uuid4()),
                 conversation_id=conversation_id,
@@ -91,6 +100,7 @@ class DiscordAdapter(BaseGatewayAdapter):
                 sender=sender,
                 source=self.name,
                 content=message.clean_content,
+                attachments=attachments,
                 reply_fn=reply_fn,
             )
 

@@ -2,10 +2,10 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import TYPE_CHECKING, AsyncIterator, Optional
+from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
 from fastapi.responses import StreamingResponse
-from waifu_types import BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
@@ -33,7 +33,7 @@ class HTTPAdapter(BaseGatewayAdapter):
     async def send(self, response: OutgoingResponse) -> None:
         pass  # HTTP 傳送由 reply_fn / StreamingResponse 負責
 
-    async def handle(self, body: "ChatRequest") -> StreamingResponse:
+    async def handle(self, body: "ChatRequest", attachments: Optional[List[Attachment]] = None) -> StreamingResponse:
         if self._core is None:
             raise RuntimeError("HTTPAdapter not started")
 
@@ -57,6 +57,7 @@ class HTTPAdapter(BaseGatewayAdapter):
             sender=Sender(user_id=body.user_id, display_name=body.display_name),
             source=self.name,
             content=body.content,
+            attachments=attachments or [],
             reply_fn=reply_fn,
         )
 

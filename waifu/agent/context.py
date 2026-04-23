@@ -1,10 +1,11 @@
+import base64
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING, Any, Dict, List
 
 from shuvi.context import ContextManager
 from shuvi.types import AppMessage
-from waifu_types import ConversationMode, HookContext, UserMessage
+from waifu_types import Attachment, ConversationMode, HookContext, UserMessage
 
 if TYPE_CHECKING:
     from waifu.config import ContextConfig
@@ -16,9 +17,35 @@ def _estimate_tokens(messages: List[AppMessage]) -> int:
     """粗估 token 數（chars / 4），不呼叫 API。"""
     total = 0
     for m in messages:
-        content = m.content or ""
-        total += len(content) // 4
+        c = m.content
+        if isinstance(c, list):
+            text = " ".join(p.get("text", "") for p in c if isinstance(p, dict))
+        else:
+            text = c or ""
+        total += len(text) // 4
     return total
+
+
+def _attachment_image_url(att: Attachment) -> str:
+    """將 Attachment 轉為 image_url 字串（data URL 或遠端 URL）。"""
+    if att.url:
+        return att.url
+    encoded = base64.b64encode(att.data).decode("utf-8")
+    return f"data:{att.content_type};base64,{encoded}"
+
+
+def _build_user_message(content: str, attachments: List[Attachment]) -> UserMessage:
+    """將文字與圖片附件統一正規化為 multimodal content list。"""
+    parts: List[Dict[str, Any]] = [{"type": "text", "text": content}]
+    for att in attachments:
+        if att.content_type.startswith("image/"):
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _attachment_image_url(att), "detail": "auto"},
+                }
+            )
+    return UserMessage(content=parts)
 
 
 class ContextBuilder:
@@ -84,6 +111,6 @@ class ContextBuilder:
         content = ctx.request.content
         if ctx.request.mode == ConversationMode.group:
             content = f"[{ctx.request.sender.display_name}]: {content}"
-        cm.append(UserMessage(content=content))
+        cm.append(_build_user_message(content, ctx.request.attachments))
 
         return cm
