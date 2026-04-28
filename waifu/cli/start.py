@@ -14,7 +14,11 @@ def cmd_start(args: List[str]) -> None:
     parser.add_argument("--app", default=None, help="FastAPI app import path, e.g. myapp:app")
     parser.add_argument("--reload", action="store_true", help="Enable hot reload (dev)")
     parser.add_argument("--log-level", default="info", help="Log level (default: info)")
+    parser.add_argument("--debug", action="store_true", help="Shorthand for --log-level debug")
     ns = parser.parse_args(args)
+
+    if ns.debug:
+        ns.log_level = "debug"
 
     logging.basicConfig(
         level=ns.log_level.upper(),

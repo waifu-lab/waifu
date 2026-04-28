@@ -74,7 +74,6 @@ class WebSocketAdapter(BaseGatewayAdapter):
                 request_id: str = data.get("request_id", str(uuid.uuid4()))
                 conversation_id: str = data.get("conversation_id") or session_token
 
-                # ── 語音輸入：STT → 轉為文字 ──────────────────────────────
                 if msg_type == "voice":
                     if self._voice is None or not self._voice.has_stt:
                         logger.debug("voice message received but STT not configured, ignored")
@@ -84,15 +83,17 @@ class WebSocketAdapter(BaseGatewayAdapter):
                         audio_format: str = data.get("format", "webm")
                         audio_bytes = base64.b64decode(audio_b64)
                         content = await self._voice.transcribe(audio_bytes, format=audio_format)
+                        logger.debug("STT transcription result: %r", content)
                         if not content.strip():
+                            logger.debug("STT returned empty content, ignoring")
                             continue
+                        await websocket.send_json({"type": "transcript", "request_id": request_id, "content": content})
                     except Exception:
                         logger.exception("STT transcription failed for session %s", session_token)
                         continue
                 else:
                     content = data.get("content", "")
 
-                # ── 附件解析（圖片等）─────────────────────────────────────
                 attachments: list[Attachment] = []
                 for raw in data.get("attachments", []):
                     try:

@@ -41,12 +41,15 @@ class HTTPAdapter(BaseGatewayAdapter):
         conversation_id = body.conversation_id or str(uuid.uuid4())
         queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
 
+        chunk_sent = False
+
         async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+            nonlocal chunk_sent
             if chunk is not None:
+                chunk_sent = True
                 await queue.put(chunk)
             elif response is not None:
-                # 確保完整內容已推送（非 streaming provider 一次送完）
-                if response.content and queue.empty():
+                if response.content and not chunk_sent:
                     await queue.put(response.content)
                 await queue.put(None)  # sentinel: stream end
 

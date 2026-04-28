@@ -16,10 +16,11 @@ _config: Optional[WaifuConfig] = None
 async def _lifespan(app: FastAPI):
     assert _config is not None, "_cli_app._config must be set before uvicorn starts"
 
-    ws_adapter = WebSocketAdapter()
+    waifu = Waifu(_config)
+
+    ws_adapter = WebSocketAdapter(voice_service=waifu.voice_service)
     http_adapter = HTTPAdapter()
 
-    waifu = Waifu(_config)
     waifu.mount(ws_adapter).mount(http_adapter)
 
     # Waifu-Node：若 config 啟用則自動掛載
