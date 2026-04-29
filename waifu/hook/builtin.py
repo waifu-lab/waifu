@@ -174,31 +174,48 @@ class EmotionHook(BaseHook):
         self._emotion_map = emotion_map or _DEFAULT_EMOTION_MAP
         self._default_emotion = default_emotion
 
-    @property
-    def capabilities(self) -> dict:
-        return {"emotions": sorted(set(self._emotion_map.values()))}
+    def system_prompt_fragment(self, ctx: HookContext) -> Optional[str]:
+        if not ctx.request.live2d:
+            return None
+        expressions = ctx.session.metadata.get("live2d_expressions") or sorted(set(self._emotion_map.values()))
+        options = ", ".join(expressions)
+        return (
+            f"## 情緒表達\n"
+            f"在每一句話的開頭加上情緒標籤，格式為 [emotion:xxx]，從以下選項中選擇：{options}\n"
+            f"範例：[emotion:happy]今天天氣真好！[emotion:sad]但我有點擔心你。"
+        )
 
     async def post(self, ctx: HookContext) -> HookContext:
         if not ctx.response or not ctx.request.live2d:
             return ctx
 
-        emotion = self._detect(ctx.response)
+        # 若 TTSHook 已處理逐句 emotion，跳過獨立事件
+        if ctx.metadata.get("tts_emotion_handled"):
+            return ctx
+
+        live2d_expressions: list = ctx.session.metadata.get("live2d_expressions", [])
+        emotion = self._detect(ctx.response, live2d_expressions or None)
         ctx.events.append({"event": "emotion", "data": {"emotion": emotion}})
         return ctx
 
-    def _detect(self, text: str) -> str:
+    def _detect(self, text: str, allowed: Optional[List[str]] = None) -> str:
         # 優先：明確標籤
         match = _EMOTION_TAG_PATTERN.search(text)
         if match:
             tag = match.group(1).lower()
-            return self._emotion_map.get(tag, tag)
+            emotion = self._emotion_map.get(tag, tag)
+            if allowed is None or emotion in allowed:
+                return emotion
 
         # 關鍵字掃描
         text_lower = text.lower()
         for keyword, emotion in self._emotion_map.items():
             if keyword.lower() in text_lower:
-                return emotion
+                if allowed is None or emotion in allowed:
+                    return emotion
 
+        if allowed and self._default_emotion not in allowed:
+            return allowed[0]
         return self._default_emotion
 
 
@@ -254,27 +271,47 @@ class TTSHook(BaseHook):
     """
     語音合成 Hook（post）
 
-    在 agent 回應後，呼叫 VoiceService.synthesize() 將文字轉為音訊，
-    並將 audio 事件與 lipsync 事件寫入 ctx.events，
-    由 WebSocketAdapter 隨其他事件一併送出
+    在 agent 回應後，切句逐句呼叫 VoiceService.synthesize_sentences()，
+    每句產出帶 emotion 的 audio 事件，前端播放時同步切換表情。
 
-    Discord / Telegram adapter 不支援音訊事件，此 hook 對其無副作用
+    若傳入 emotion_hook，會對每句做 emotion 偵測並將結果塞入 audio 事件 data，
+    同時標記 tts_emotion_handled 讓 EmotionHook 跳過獨立事件。
+
+    Discord / Telegram adapter 不支援音訊事件，此 hook 對其無副作用。
     """
 
     name = "tts"
     priority = 15  # 在 EmotionHook 之前
 
-    def __init__(self, voice_service: "VoiceService") -> None:
+    def __init__(
+        self,
+        voice_service: "VoiceService",
+        emotion_hook: Optional["EmotionHook"] = None,
+    ) -> None:
         self._voice = voice_service
+        self._emotion_hook = emotion_hook
 
     async def post(self, ctx: HookContext) -> HookContext:
         if not ctx.response or not ctx.request.live2d:
             return ctx
 
         try:
-            result = await self._voice.synthesize(ctx.response, need_lipsync=ctx.request.need_lipsync)
-            events = self._voice.build_audio_events(result)
-            ctx.events.extend(events)
+            live2d_expressions: list = ctx.session.metadata.get("live2d_expressions", [])
+            allowed = live2d_expressions or None
+
+            async for result in self._voice.synthesize_sentences(
+                ctx.response, need_lipsync=ctx.request.need_lipsync
+            ):
+                emotion: Optional[str] = None
+                if self._emotion_hook is not None:
+                    emotion = self._emotion_hook._detect(result.sentence, allowed)
+
+                for ev in self._voice.build_audio_events(result, emotion=emotion):
+                    await ctx.request.reply_fn(event=ev)
+
+            if self._emotion_hook is not None:
+                ctx.metadata["tts_emotion_handled"] = True
+
         except Exception:
             logger.exception("TTSHook: synthesis failed")
 

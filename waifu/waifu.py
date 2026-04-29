@@ -1,8 +1,11 @@
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import Any, Dict, Optional, cast
+
+_EMOTION_TAG_RE = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
 from waifu.agent import AgentRunner, ContextBuilder
@@ -146,7 +149,7 @@ class Waifu:
         self._register_builtin_hooks(config)
 
         # Agent
-        self._context_builder = ContextBuilder(config.context)
+        self._context_builder = ContextBuilder(config.context, hook_registry=self._hook_registry)
         self._agent_runner = AgentRunner(self._provider)
 
         # Gateway（注入 dispatch handler）— 須在 PluginManager 之前，提供 session_manager
@@ -430,7 +433,8 @@ class Waifu:
 
         ctx = await self._hook_pipeline.run_post(ctx)
 
-        return self._build_response(request, content=ctx.response or final_content, ctx=ctx)
+        display_content = _EMOTION_TAG_RE.sub("", ctx.response or final_content).strip()
+        return self._build_response(request, content=display_content, ctx=ctx)
 
     @staticmethod
     def _build_response(request: IncomingRequest, content: str, ctx: HookContext) -> OutgoingResponse:

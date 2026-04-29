@@ -1,10 +1,19 @@
 import base64
-from typing import TYPE_CHECKING, Dict, List, Optional
+import re
+from typing import TYPE_CHECKING, AsyncIterator, Dict, List, Optional
 
 from .lipsync import build_lipsync_events, estimate_duration_ms
 
 if TYPE_CHECKING:
     from hai.providers.providers import ProviderSTT, ProviderTTS
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[。！？!?\.…])\s*")
+_EMOTION_TAG = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
+
+
+def _split_sentences(text: str) -> List[str]:
+    parts = _SENTENCE_SPLIT.split(text.strip())
+    return [p.strip() for p in parts if p.strip()]
 
 
 class VoiceService:
@@ -27,20 +36,11 @@ class VoiceService:
         return self._tts is not None
 
     async def transcribe(self, audio: bytes, format: str = "webm", language: Optional[str] = None) -> str:
-        """
-        語音轉文字
-        """
         if self._stt is None:
             raise RuntimeError("VoiceService: STT provider not configured")
         return await self._stt.transcribe(audio, format=format, language=language)
 
     async def synthesize(self, text: str, need_lipsync: bool = False) -> "SynthesisResult":
-        """
-        文字轉語音；need_lipsync=True 時額外計算 viseme 事件
-
-        :raises RuntimeError: 若未設定 TTS provider
-        :return: SynthesisResult（audio_bytes, format, duration_ms, lipsync_events）
-        """
         if self._tts is None:
             raise RuntimeError("VoiceService: TTS provider not configured")
 
@@ -56,32 +56,57 @@ class VoiceService:
             lipsync_events=visemes,
         )
 
-    def build_audio_events(self, result: "SynthesisResult") -> List[Dict]:
-        """
-        將 SynthesisResult 轉為 ctx.events 格式的事件列表
+    async def synthesize_stream(self, text: str, chunk_size: int = 4096) -> AsyncIterator[bytes]:
+        """逐塊 yield 音訊 bytes，不緩衝整段音頻。"""
+        if self._tts is None:
+            raise RuntimeError("VoiceService: TTS provider not configured")
+        async for chunk in self._tts.synthesize_stream(text, chunk_size=chunk_size):
+            yield chunk
 
-        一律送 audio 事件；lipsync_events 非空時才附加 lipsync 事件
-        """
+    async def synthesize_sentences(
+        self, text: str, need_lipsync: bool = False
+    ) -> AsyncIterator["SynthesisResult"]:
+        """切句後逐句合成，依序 yield SynthesisResult。"""
+        if self._tts is None:
+            raise RuntimeError("VoiceService: TTS provider not configured")
+
+        sentences = _split_sentences(text)
+        if not sentences:
+            return
+
+        fmt = self._tts.response_format
+        for sentence in sentences:
+            tts_text = _EMOTION_TAG.sub("", sentence).strip()
+            if not tts_text:
+                continue
+            audio_bytes = await self._tts.synthesize(tts_text)
+            duration_ms = estimate_duration_ms(audio_bytes, fmt)
+            visemes = build_lipsync_events(sentence, duration_ms, fps=self._lipsync_fps) if need_lipsync else []
+            yield SynthesisResult(
+                audio_bytes=audio_bytes,
+                format=fmt,
+                duration_ms=duration_ms,
+                lipsync_events=visemes,
+                sentence=sentence,
+            )
+
+    def build_audio_events(self, result: "SynthesisResult", emotion: Optional[str] = None) -> List[Dict]:
         audio_b64 = base64.b64encode(result.audio_bytes).decode()
-        events: List[Dict] = [
-            {
-                "event": "audio",
-                "data": {
-                    "audio": audio_b64,
-                    "format": result.format,
-                    "duration_ms": result.duration_ms,
-                },
-            }
-        ]
+        data: Dict = {
+            "audio": audio_b64,
+            "format": result.format,
+            "duration_ms": result.duration_ms,
+        }
+        if emotion is not None:
+            data["emotion"] = emotion
+        events: List[Dict] = [{"event": "audio", "data": data}]
         if result.lipsync_events:
             events.append({"event": "lipsync", "data": {"visemes": result.lipsync_events}})
         return events
 
 
 class SynthesisResult:
-    """TTS 合成結果"""
-
-    __slots__ = ("audio_bytes", "format", "duration_ms", "lipsync_events")
+    __slots__ = ("audio_bytes", "format", "duration_ms", "lipsync_events", "sentence")
 
     def __init__(
         self,
@@ -89,11 +114,13 @@ class SynthesisResult:
         format: str,
         duration_ms: int,
         lipsync_events: List[Dict],
+        sentence: str = "",
     ) -> None:
         self.audio_bytes = audio_bytes
         self.format = format
         self.duration_ms = duration_ms
         self.lipsync_events = lipsync_events
+        self.sentence = sentence
 
 
 __all__ = ["VoiceService", "SynthesisResult"]

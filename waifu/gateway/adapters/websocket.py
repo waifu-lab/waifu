@@ -68,6 +68,16 @@ class WebSocketAdapter(BaseGatewayAdapter):
                 data: Dict[str, Any] = await websocket.receive_json()
 
                 msg_type: str = data.get("type", "")
+
+                if msg_type == "live2dsync":
+                    expressions: list = data.get("expressions", [])
+                    if self._core is not None:
+                        session = self._core.session_manager.get_or_create(session_token)
+                        session.metadata["live2d_expressions"] = expressions
+                        logger.debug("live2dsync: stored %d expressions for session %s", len(expressions), session_token)
+                    await websocket.send_json({"type": "live2dsync_ack", "count": len(expressions)})
+                    continue
+
                 if msg_type not in ("chat", "voice"):
                     continue
 
@@ -134,17 +144,25 @@ class WebSocketAdapter(BaseGatewayAdapter):
 def _make_ws_reply_fn(websocket: "WebSocket", request_id: str):
     """建立綁定到此 WebSocket 連線的 reply_fn
 
-    reply_fn 支援兩種呼叫方式：
-      - reply_fn(response: OutgoingResponse)  → 送出 done 訊息
-      - reply_fn(chunk="...")                 → 送出 chunk 訊息（streaming）
+    reply_fn 支援三種呼叫方式：
+      - reply_fn(response: OutgoingResponse)       → 送出剩餘 events + done 訊息
+      - reply_fn(chunk="...")                       → 送出 chunk 訊息（streaming）
+      - reply_fn(event={...})                       → 立即送出單一 event（TTSHook 逐句串流用）
     """
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+    async def reply_fn(
+        response: Optional[OutgoingResponse] = None,
+        *,
+        chunk: Optional[str] = None,
+        event: Optional[dict] = None,
+    ) -> None:
         if chunk is not None:
             await websocket.send_json({"type": "chunk", "request_id": request_id, "content": chunk})
+        elif event is not None:
+            await websocket.send_json({"type": "event", **event})
         elif response is not None:
-            for event in response.events:
-                await websocket.send_json({"type": "event", **event})
+            for ev in response.events:
+                await websocket.send_json({"type": "event", **ev})
             await websocket.send_json({"type": "done", "request_id": response.request_id, "content": response.content})
 
     return reply_fn

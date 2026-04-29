@@ -30,3 +30,7 @@ class BaseHook(ABC):
 
     async def post(self, ctx: HookContext) -> HookContext:
         return ctx
+
+    def system_prompt_fragment(self, ctx: HookContext) -> Optional[str]:  # noqa: ARG002
+        """回傳要注入 system prompt 的片段，None 表示不注入。"""
+        return None

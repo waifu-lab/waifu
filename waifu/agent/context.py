@@ -1,7 +1,7 @@
 import base64
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from shuvi.context import ContextManager
 from shuvi.types import AppMessage
@@ -9,6 +9,7 @@ from waifu_types import Attachment, ConversationMode, HookContext, UserMessage
 
 if TYPE_CHECKING:
     from waifu.config import ContextConfig
+    from waifu.hook import HookRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +50,9 @@ def _build_user_message(content: str, attachments: List[Attachment]) -> UserMess
 
 
 class ContextBuilder:
-    def __init__(self, config: "ContextConfig") -> None:
+    def __init__(self, config: "ContextConfig", hook_registry: "Optional[HookRegistry]" = None) -> None:
         self.config = config
+        self._hook_registry = hook_registry
 
     def build_system_prompt(self, ctx: HookContext) -> str:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -72,6 +74,12 @@ class ContextBuilder:
         relationship = ctx.metadata.get("relationship", "")
         if relationship:
             parts.append(f"## 與當前對話者的關係\n{relationship}")
+
+        if self._hook_registry is not None:
+            for hook in self._hook_registry.hooks:
+                fragment = hook.system_prompt_fragment(ctx)
+                if fragment:
+                    parts.append(fragment)
 
         parts.append(f"當前對話者: {ctx.request.sender.display_name} ({ctx.request.sender.user_id})\n當前時間: {now}")
 
