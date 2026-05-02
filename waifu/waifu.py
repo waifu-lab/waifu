@@ -408,19 +408,27 @@ class Waifu:
         history_len = len(session.history)
         new_shuvi_msgs = result.messages[history_len + 1 :]
         new_waifu_msgs = [_to_waifu_message(m) for m in new_shuvi_msgs]
-        session.add_messages(new_waifu_msgs)
+
+        ctx.new_messages = new_waifu_msgs
+        ctx = await self._hook_pipeline.run_mid(ctx)
+
+        session.add_messages(ctx.new_messages)
 
         # Token usage from this run — only attached to the final assistant message
         usage = result.trace.token_usage
-        assistant_count = sum(1 for m in new_waifu_msgs if m.role == "assistant")
-        for i, msg in enumerate(new_waifu_msgs):
+        assistant_count = sum(1 for m in ctx.new_messages if m.role == "assistant")
+        for i, msg in enumerate(ctx.new_messages):
             if msg.role != "user":
                 # 只把 token 數掛在最後一條 assistant 訊息上（避免重複累計）
                 is_last_assistant = msg.role == "assistant" and (
                     assistant_count == 0
                     or i
                     == next(
-                        (j for j in range(len(new_waifu_msgs) - 1, -1, -1) if new_waifu_msgs[j].role == "assistant"),
+                        (
+                            j
+                            for j in range(len(ctx.new_messages) - 1, -1, -1)
+                            if ctx.new_messages[j].role == "assistant"
+                        ),
                         -1,
                     )
                 )

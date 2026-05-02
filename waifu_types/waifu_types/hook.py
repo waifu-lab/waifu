@@ -19,6 +19,7 @@ class HookContext(BaseModel):
     trace: Optional[BaseExecutionTrace] = None
     events: List[Dict[str, Any]] = []  # 副作用（EmotionHook 寫入）
     abort: bool = False  # True 則跳過 Agent
+    new_messages: List[BaseMessage] = []  # 本輪新產生的訊息，mid hook 可修改，存入 history 前使用
 
 
 class BaseHook(ABC):
@@ -26,6 +27,10 @@ class BaseHook(ABC):
     priority: int = 0  # 數字越小越先執行
 
     async def pre(self, ctx: HookContext) -> HookContext:
+        return ctx
+
+    async def mid(self, ctx: HookContext) -> HookContext:
+        """在 agent 生成完、存入 history/DB 之前執行。可修改 ctx.new_messages。"""
         return ctx
 
     async def post(self, ctx: HookContext) -> HookContext:

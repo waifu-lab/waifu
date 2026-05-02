@@ -185,6 +185,13 @@ class EmotionHook(BaseHook):
             f"範例：[emotion:happy]今天天氣真好！[emotion:sad]但我有點擔心你。"
         )
 
+    async def mid(self, ctx: HookContext) -> HookContext:
+        """存入 history 前清除 new_messages 裡的 emotion tag。"""
+        for msg in ctx.new_messages:
+            if msg.role == "assistant" and msg.content:
+                msg.content = _EMOTION_TAG_PATTERN.sub("", msg.content).strip()
+        return ctx
+
     async def post(self, ctx: HookContext) -> HookContext:
         if not ctx.response or not ctx.request.live2d:
             return ctx
@@ -305,6 +312,7 @@ class TTSHook(BaseHook):
                 emotion: Optional[str] = None
                 if self._emotion_hook is not None:
                     emotion = self._emotion_hook._detect(result.sentence, allowed)
+                    result.sentence = _EMOTION_TAG_PATTERN.sub("", result.sentence).strip()
 
                 for ev in self._voice.build_audio_events(result, emotion=emotion):
                     await ctx.request.reply_fn(event=ev)

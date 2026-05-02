@@ -40,6 +40,14 @@ class HookPipeline:
                 logger.exception("Hook %s pre() error", hook.name)
         return ctx
 
+    async def run_mid(self, ctx: HookContext) -> HookContext:
+        for hook in self._registry.hooks:
+            try:
+                ctx = await hook.mid(ctx)
+            except Exception:
+                logger.exception("Hook %s mid() error", hook.name)
+        return ctx
+
     async def run_post(self, ctx: HookContext) -> HookContext:
         for hook in self._registry.hooks:
             try:
