@@ -201,12 +201,24 @@ class EmotionHook(BaseHook):
             return ctx
 
         live2d_expressions: list = ctx.session.metadata.get("live2d_expressions", [])
-        emotion = self._detect(ctx.response, live2d_expressions or None)
-        ctx.events.append({"event": "emotion", "data": {"emotion": emotion}})
+        allowed = live2d_expressions or None
+        for emotion in self._detect_all(ctx.response, allowed):
+            ctx.events.append({"event": "emotion", "data": {"emotion": emotion}})
         return ctx
 
+    def _detect_all(self, text: str, allowed: Optional[List[str]] = None) -> List[str]:
+        tags = _EMOTION_TAG_PATTERN.findall(text)
+        if tags:
+            result = [
+                e for tag in tags
+                if (e := self._emotion_map.get(tag.lower(), tag.lower())) and (allowed is None or e in allowed)
+            ]
+            if result:
+                return result
+        return [self._detect(text, allowed)]
+
     def _detect(self, text: str, allowed: Optional[List[str]] = None) -> str:
-        # 優先：明確標籤
+        # 優先：明確標籤（第一個）
         match = _EMOTION_TAG_PATTERN.search(text)
         if match:
             tag = match.group(1).lower()
@@ -314,6 +326,8 @@ class TTSHook(BaseHook):
                     emotion = self._emotion_hook._detect(result.sentence, allowed)
                     result.sentence = _EMOTION_TAG_PATTERN.sub("", result.sentence).strip()
 
+                if emotion is not None:
+                    await ctx.request.reply_fn(event={"event": "emotion", "data": {"emotion": emotion}})
                 for ev in self._voice.build_audio_events(result, emotion=emotion):
                     await ctx.request.reply_fn(event=ev)
 

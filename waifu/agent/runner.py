@@ -1,6 +1,7 @@
 import logging
 import inspect
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Dict, List, Literal, Optional
 
 from shuvi.agent import Agent
@@ -15,6 +16,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_RETRIES = 1
+
+_EMOTION_COMPLETE = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
+# FIXME: 待修改 — 這個 partial regex 太醜，應改成通用串流 tag 緩衝器
+_EMOTION_PARTIAL = re.compile(
+    r"\[(?:e(?:m(?:o(?:t(?:i(?:o(?:n(?::(?:\w+)?)?)?)?)?)?)?)?)?$",
+    re.IGNORECASE,
+)
+
+
+class _EmotionStripper:
+    """串流時緩衝並剝除 [emotion:xxx] tag，避免原始標籤送到前端。"""
+
+    def __init__(self) -> None:
+        self._buf = ""
+
+    def feed(self, chunk: str) -> str:
+        self._buf += chunk
+        self._buf = _EMOTION_COMPLETE.sub("", self._buf)
+        m = _EMOTION_PARTIAL.search(self._buf)
+        if m:
+            out, self._buf = self._buf[: m.start()], self._buf[m.start() :]
+        else:
+            out, self._buf = self._buf, ""
+        return out
+
+    def flush(self) -> str:
+        out, self._buf = self._buf, ""
+        return out
 
 
 @dataclass
@@ -48,12 +77,17 @@ class AgentRunner:
         tools: List["Tool"],
         context_manager: ContextManager,
     ) -> AgentResult:
+        stripper = _EmotionStripper()
+
         async def _on_chunk(chunk: str) -> None:
+            clean = stripper.feed(chunk)
+            if not clean:
+                return
             fn = ctx.request.reply_fn
             if inspect.iscoroutinefunction(fn):
-                await fn(chunk=chunk)
+                await fn(chunk=clean)
             else:
-                fn(chunk=chunk)
+                fn(chunk=clean)
 
         cid = ctx.request.conversation_id
         state = self.get_state(cid)
@@ -80,6 +114,14 @@ class AgentRunner:
             )
 
             result = await agent.run()
+
+            remaining = stripper.flush()
+            if remaining:
+                fn = ctx.request.reply_fn
+                if inspect.iscoroutinefunction(fn):
+                    await fn(chunk=remaining)
+                else:
+                    fn(chunk=remaining)
 
             if result.outcome == AGENT_OUTCOME.error:
                 last_exc = captured_exc

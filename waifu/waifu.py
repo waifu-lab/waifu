@@ -208,9 +208,10 @@ class Waifu:
                 max_history=config.context.max_history_messages,
             )
         )
-        self._hook_registry.register(EmotionHook())
+        emohook = EmotionHook()
+        self._hook_registry.register(emohook)
         if self._voice_service is not None and self._voice_service.has_tts:
-            self._hook_registry.register(TTSHook(self._voice_service))
+            self._hook_registry.register(TTSHook(self._voice_service, emohook))
         self._hook_registry.register(LoggingHook())
 
     def _register_builtin_tools(self) -> None:

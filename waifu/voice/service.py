@@ -1,8 +1,9 @@
+import asyncio
 import base64
 import re
 from typing import TYPE_CHECKING, AsyncIterator, Dict, List, Optional
 
-from .lipsync import build_lipsync_events, estimate_duration_ms
+from .lipsync import build_lipsync_events
 
 if TYPE_CHECKING:
     from hai.providers.providers import ProviderSTT, ProviderTTS
@@ -46,13 +47,11 @@ class VoiceService:
 
         audio_bytes = await self._tts.synthesize(text)
         fmt = self._tts.response_format
-        duration_ms = estimate_duration_ms(audio_bytes, fmt)
-        visemes = build_lipsync_events(text, duration_ms, fps=self._lipsync_fps) if need_lipsync else []
+        visemes = build_lipsync_events(text, frames=self._lipsync_fps) if need_lipsync else []
 
         return SynthesisResult(
             audio_bytes=audio_bytes,
             format=fmt,
-            duration_ms=duration_ms,
             lipsync_events=visemes,
         )
 
@@ -63,10 +62,8 @@ class VoiceService:
         async for chunk in self._tts.synthesize_stream(text, chunk_size=chunk_size):
             yield chunk
 
-    async def synthesize_sentences(
-        self, text: str, need_lipsync: bool = False
-    ) -> AsyncIterator["SynthesisResult"]:
-        """切句後逐句合成，依序 yield SynthesisResult。"""
+    async def synthesize_sentences(self, text: str, need_lipsync: bool = False) -> AsyncIterator["SynthesisResult"]:
+        """切句後並行合成，依原順序 yield SynthesisResult。"""
         if self._tts is None:
             raise RuntimeError("VoiceService: TTS provider not configured")
 
@@ -75,30 +72,31 @@ class VoiceService:
             return
 
         fmt = self._tts.response_format
-        for sentence in sentences:
+
+        async def _one(sentence: str) -> "SynthesisResult | None":
             tts_text = _EMOTION_TAG.sub("", sentence).strip()
             if not tts_text:
-                continue
-            audio_bytes = await self._tts.synthesize(tts_text)
-            duration_ms = estimate_duration_ms(audio_bytes, fmt)
-            visemes = build_lipsync_events(sentence, duration_ms, fps=self._lipsync_fps) if need_lipsync else []
-            yield SynthesisResult(
+                return None
+            audio_bytes = await self._tts.synthesize(tts_text)  # type: ignore[union-attr]
+            visemes = build_lipsync_events(sentence, frames=self._lipsync_fps) if need_lipsync else []
+            return SynthesisResult(
                 audio_bytes=audio_bytes,
                 format=fmt,
-                duration_ms=duration_ms,
                 lipsync_events=visemes,
                 sentence=sentence,
             )
 
+        # FIXME: 待修改 — 同時打所有句子，TTS provider 有 rate limit 時會炸
+        tasks = [asyncio.create_task(_one(s)) for s in sentences]
+        for task in tasks:
+            result = await task
+            if result is not None:
+                yield result
+
     def build_audio_events(self, result: "SynthesisResult", emotion: Optional[str] = None) -> List[Dict]:
         audio_b64 = base64.b64encode(result.audio_bytes).decode()
-        data: Dict = {
-            "audio": audio_b64,
-            "format": result.format,
-            "duration_ms": result.duration_ms,
-        }
-        if emotion is not None:
-            data["emotion"] = emotion
+        data: Dict = {"audio": audio_b64, "format": result.format}
+
         events: List[Dict] = [{"event": "audio", "data": data}]
         if result.lipsync_events:
             events.append({"event": "lipsync", "data": {"visemes": result.lipsync_events}})
@@ -106,19 +104,17 @@ class VoiceService:
 
 
 class SynthesisResult:
-    __slots__ = ("audio_bytes", "format", "duration_ms", "lipsync_events", "sentence")
+    __slots__ = ("audio_bytes", "format", "lipsync_events", "sentence")
 
     def __init__(
         self,
         audio_bytes: bytes,
         format: str,
-        duration_ms: int,
         lipsync_events: List[Dict],
         sentence: str = "",
     ) -> None:
         self.audio_bytes = audio_bytes
         self.format = format
-        self.duration_ms = duration_ms
         self.lipsync_events = lipsync_events
         self.sentence = sentence
 
