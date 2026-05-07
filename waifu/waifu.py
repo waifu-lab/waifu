@@ -5,9 +5,10 @@ import re
 import time
 from typing import Any, Dict, Optional, cast
 
-_EMOTION_TAG_RE = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
+
+
 from waifu.agent import AgentRunner, ContextBuilder
 from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.gateway import GatewayCore
@@ -45,6 +46,9 @@ from waifu_types import (
     ToolMessage,
     UserMessage,
 )
+
+# FIXME: 超醜
+_EMOTION_TAG_RE = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
 
 
 def _to_waifu_message(m: Any) -> BaseMessage:

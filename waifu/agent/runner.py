@@ -89,6 +89,15 @@ class AgentRunner:
             else:
                 fn(chunk=clean)
 
+        async def _on_tool_error(tool_name: str, exc: Exception) -> None:
+            logger.warning("Tool '%s' raised an error: %s", tool_name, exc)
+            fn = ctx.request.reply_fn
+            msg = f"工具 `{tool_name}` 執行失敗：{exc}\n"
+            if inspect.iscoroutinefunction(fn):
+                await fn(chunk=msg)
+            else:
+                fn(chunk=msg)
+
         cid = ctx.request.conversation_id
         state = self.get_state(cid)
         state.transition = "running"
@@ -107,7 +116,7 @@ class AgentRunner:
                     provider=self.provider,
                     system_prompt=system_prompt,
                     tools=tools,
-                    callbacks=AgentCallbacks(on_chunk=_on_chunk, error=_on_error),
+                    callbacks=AgentCallbacks(on_chunk=_on_chunk, error=_on_error, on_tool_error=_on_tool_error),
                     session_id=cid,
                     context_manager=context_manager,
                 )

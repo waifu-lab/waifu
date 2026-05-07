@@ -26,9 +26,26 @@ def _estimate_tokens(messages: List[AppMessage]) -> int:
         total += len(text) // 4
     return total
 
+#FIXME: 好醜
+_SUPPORTED_FILE_TYPES = {
+    "application/pdf",
+    "text/plain",
+    "text/html",
+    "text/css",
+    "text/javascript",
+    "text/markdown",
+    "application/json",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # pptx
+    "application/msword",
+    "text/csv",
+    "text/xml",
+    "application/xml",
+}
 
-def _attachment_image_url(att: Attachment) -> str:
-    """將 Attachment 轉為 image_url 字串（data URL 或遠端 URL）。"""
+
+def _to_data_url(att: Attachment) -> str:
     if att.url:
         return att.url
     encoded = base64.b64encode(att.data).decode("utf-8")
@@ -36,16 +53,36 @@ def _attachment_image_url(att: Attachment) -> str:
 
 
 def _build_user_message(content: str, attachments: List[Attachment]) -> UserMessage:
-    """將文字與圖片附件統一正規化為 multimodal content list。"""
+    """將文字與附件統一正規化為 multimodal content list。
+
+    - image/*         → image_url part（OpenAI vision）
+    - PDF/文件類型    → file part（OpenAI native file input）
+    - 其他            → 略過並 warning
+    """
     parts: List[Dict[str, Any]] = [{"type": "text", "text": content}]
     for att in attachments:
         if att.content_type.startswith("image/"):
             parts.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": _attachment_image_url(att), "detail": "auto"},
+                    "image_url": {"url": _to_data_url(att), "detail": "auto"},
                 }
             )
+        elif att.content_type in _SUPPORTED_FILE_TYPES:
+            if not att.data and not att.url:
+                logger.warning("Attachment '%s' has no data or url, skipping", att.filename)
+                continue
+            parts.append(
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": att.filename,
+                        "file_data": _to_data_url(att),
+                    },
+                }
+            )
+        else:
+            logger.warning("Unsupported attachment type '%s' (%s), skipping", att.content_type, att.filename)
     return UserMessage(content=parts)
 
 
