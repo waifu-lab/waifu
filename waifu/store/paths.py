@@ -64,6 +64,10 @@ class AppPaths:
     def plugins_dir(self) -> Path:
         return self.data_dir / "plugins"
 
+    @property
+    def attachments_dir(self) -> Path:
+        return self.data_dir / "attachments"
+
     def ensure_dirs(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -74,6 +78,7 @@ class AppPaths:
         self.characters_dir.mkdir(parents=True, exist_ok=True)
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
+        self.attachments_dir.mkdir(parents=True, exist_ok=True)
 
     @classmethod
     def resolve(cls) -> "AppPaths":

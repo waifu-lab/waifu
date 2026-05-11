@@ -56,6 +56,23 @@ class Message(BaseModel):
         table_name = "messages"
 
 
+class MessageAttachment(BaseModel):
+    id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
+    message = ForeignKeyField(
+        Message, backref="attachments", on_delete="CASCADE", column_name="message_id"
+    )
+    conversation_id = CharField()  # 冗餘欄位，方便依 conversation 整批清檔
+    filename = CharField()
+    content_type = CharField()
+    size_bytes = IntegerField(default=0)
+    storage_path = CharField(null=True)  # 相對 attachments_dir 的路徑；與 url 至少一個
+    url = CharField(null=True)           # 遠端 CDN（Discord/Telegram）；與 storage_path 至少一個
+    created_at = DateTimeField(default=datetime.utcnow)
+
+    class Meta:
+        table_name = "message_attachments"
+
+
 class DailyTokenUsage(BaseModel):
     """每日 token 使用量彙總（UTC date）"""
 
@@ -168,7 +185,7 @@ class Relationship(BaseModel):
         return super().save(*args, **kwargs)
 
 
-_TABLES = [Conversation, Message, DailyTokenUsage, CronJob, CronRun, PluginConfig, MCPServer, AppConfig, Character, Relationship]
+_TABLES = [Conversation, Message, MessageAttachment, DailyTokenUsage, CronJob, CronRun, PluginConfig, MCPServer, AppConfig, Character, Relationship]
 
 
 class Database:

@@ -4,10 +4,7 @@ import re
 import time
 from typing import Any, Dict, Optional, cast
 
-
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
-
-
 from waifu.agent import AgentRunner, ContextBuilder
 from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.gateway import GatewayCore
@@ -137,7 +134,10 @@ class Waifu:
         self._started_at: float = 0.0
         self._db = Database(self._paths.db_file)
         self._db.init()
-        self._conversation_store = ConversationStore(conversations_dir=self._paths.conversations_dir)
+        self._conversation_store = ConversationStore(
+            conversations_dir=self._paths.conversations_dir,
+            attachments_dir=self._paths.attachments_dir,
+        )
 
         self._character_manager = CharacterManager(self._paths.characters_dir)
         if config.character:
@@ -323,6 +323,10 @@ class Waifu:
         return self._conversation_store
 
     @property
+    def paths(self) -> AppPaths:
+        return self._paths
+
+    @property
     def plugin_registry(self) -> PluginRegistry:
         return self._plugin_registry
 
@@ -355,6 +359,7 @@ class Waifu:
         self._conversation_store.add_llm_message(
             request.conversation_id,
             {"role": "user", "content": request.content},
+            attachments=request.attachments or None,
         )
 
         ctx = HookContext(

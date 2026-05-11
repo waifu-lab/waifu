@@ -13,7 +13,10 @@ def _get_store():
     paths = AppPaths.resolve()
     db = Database(paths.db_file)
     db.init()
-    return ConversationStore(conversations_dir=paths.conversations_dir)
+    return ConversationStore(
+        conversations_dir=paths.conversations_dir,
+        attachments_dir=paths.attachments_dir,
+    )
 
 
 def cmd_conversation(cmd: str, args: List[str]) -> None:
@@ -186,7 +189,10 @@ def _cmd_export(args: List[str]) -> None:
     paths = AppPaths.resolve()
     db = Database(paths.db_file)
     db.init()
-    store = ConversationStore(conversations_dir=paths.conversations_dir)
+    store = ConversationStore(
+        conversations_dir=paths.conversations_dir,
+        attachments_dir=paths.attachments_dir,
+    )
     conv = store.resolve(id_prefix)
     if conv is None:
         err_console.print(f"[red]Not found (or ambiguous):[/red] {id_prefix}")

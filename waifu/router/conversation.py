@@ -1,7 +1,6 @@
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from typing import cast
+from typing import Any, Dict, List, Optional, cast
 
 from fastapi import APIRouter, HTTPException
 
@@ -62,6 +61,7 @@ def make_conversation_router(conversation_store: ConversationStore) -> APIRouter
                     "id": cast(str, m.id),
                     "role": cast(str, m.role),
                     "parts": parts,
+                    "attachments": conversation_store.attachments_for(cast(str, m.id)),
                     "created_at": cast(datetime, m.created_at).isoformat() + "Z",
                 }
             )

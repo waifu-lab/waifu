@@ -1,19 +1,3 @@
-"""Centralized logging for waifu using loguru + rich.
-
-Usage:
-    from waifu.logger import logger, cid
-
-    cid.set("conv-123")
-    logger.info("hello")
-
-`cid` is a contextvars.ContextVar bound to the current conversation/request id;
-it is automatically attached to every log record under `extra.cid`.
-
-Standard `logging` calls (`logging.getLogger(...)`) are intercepted and routed
-through loguru, so third-party libraries and existing modules using stdlib
-logging share the same sinks/format.
-"""
-
 from __future__ import annotations
 
 import contextvars

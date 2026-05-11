@@ -1,12 +1,16 @@
 import json
+import os
 import re
+import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
 
 from peewee import CharField, DateTimeField, ForeignKeyField, IntegerField, TextField
 
-from waifu.store.models import Conversation, DailyTokenUsage, Message
+from waifu.store.models import Conversation, DailyTokenUsage, Message, MessageAttachment
+from waifu_types import Attachment
 
 
 def _parts_to_text(parts: List[Dict[str, Any]]) -> str:
@@ -41,8 +45,13 @@ class ConversationStore:
     that directory is (re-)written with the full conversation history.
     """
 
-    def __init__(self, conversations_dir: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        conversations_dir: Optional[Path] = None,
+        attachments_dir: Optional[Path] = None,
+    ) -> None:
         self._conversations_dir = conversations_dir
+        self._attachments_dir = attachments_dir
 
     def create(self, title: str) -> Conversation:
         return Conversation.create(title=title)
@@ -72,6 +81,8 @@ class ConversationStore:
 
     def delete(self, id: str) -> bool:
         n = Conversation.delete().where(Conversation.id == id).execute()
+        if n > 0 and self._attachments_dir is not None:
+            shutil.rmtree(self._attachments_dir / id, ignore_errors=True)
         return n > 0
 
     def search(self, query: str) -> List[Conversation]:
@@ -123,6 +134,7 @@ class ConversationStore:
         message_id: Optional[str] = None,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
+        attachments: Optional[List[Attachment]] = None,
     ) -> Message:
         """Store a message. `parts` may be a list of part objects or a plain string
         (which is wrapped as ``[{"type": "text", "text": parts}]`` automatically)."""
@@ -141,12 +153,73 @@ class ConversationStore:
         if output_tokens is not None:
             kwargs["output_tokens"] = output_tokens
         msg = Message.create(**kwargs)
+        if attachments:
+            try:
+                self._save_attachments(cast(str, msg.id), conversation_id, attachments)
+            except Exception:
+                Message.delete().where(Message.id == msg.id).execute()
+                raise
         Conversation.update(updated_at=datetime.utcnow()).where(Conversation.id == conversation_id).execute()
         if (input_tokens or 0) + (output_tokens or 0) > 0:
             self._upsert_daily_tokens(conversation_id, input_tokens or 0, output_tokens or 0)
         if self._conversations_dir is not None:
             self._sync_markdown(conversation_id)
         return msg
+
+    def _save_attachments(
+        self,
+        message_id: str,
+        conversation_id: str,
+        attachments: List[Attachment],
+    ) -> None:
+        """Persist each attachment to disk (if it has bytes) and create a
+        MessageAttachment row. Raises on disk error; caller rolls back."""
+        for att in attachments:
+            att_id = str(uuid.uuid4())
+            storage_path: Optional[str] = None
+            size = 0
+            if att.data:
+                if self._attachments_dir is None:
+                    raise RuntimeError("attachments_dir not configured")
+                ext = os.path.splitext(att.filename)[1]
+                rel = Path(conversation_id) / message_id / f"{att_id}{ext}"
+                full = self._attachments_dir / rel
+                full.parent.mkdir(parents=True, exist_ok=True)
+                full.write_bytes(att.data)
+                size = len(att.data)
+                storage_path = rel.as_posix()
+            elif not att.url:
+                continue  # no data and no url — nothing to persist
+            MessageAttachment.create(
+                id=att_id,
+                message=message_id,
+                conversation_id=conversation_id,
+                filename=att.filename,
+                content_type=att.content_type,
+                size_bytes=size,
+                storage_path=storage_path,
+                url=att.url,
+            )
+
+    def get_attachment(self, attachment_id: str) -> Optional[MessageAttachment]:
+        return MessageAttachment.get_or_none(MessageAttachment.id == attachment_id)
+
+    def attachments_for(self, message_id: str) -> List[Dict[str, Any]]:
+        rows = list(MessageAttachment.select().where(MessageAttachment.message == message_id))
+        result: List[Dict[str, Any]] = []
+        for a in rows:
+            att_id = cast(str, a.id)
+            local_url = f"/attachments/{att_id}" if a.storage_path else None
+            result.append(
+                {
+                    "id": att_id,
+                    "filename": cast(str, a.filename),
+                    "content_type": cast(str, a.content_type),
+                    "size_bytes": cast(int, a.size_bytes),
+                    "url": local_url or cast(Optional[str], a.url),
+                }
+            )
+        return result
 
     def _upsert_daily_tokens(self, conversation_id: str, input_tokens: int, output_tokens: int) -> None:
         """Upsert 當日 token 彙總（per-conversation + 全域）"""
@@ -188,6 +261,7 @@ class ConversationStore:
         *,
         input_tokens: Optional[int] = None,
         output_tokens: Optional[int] = None,
+        attachments: Optional[List[Attachment]] = None,
     ) -> Message:
         """Convert a shuvi/LLM-format message dict and persist it.
 
@@ -238,6 +312,7 @@ class ConversationStore:
             parts,
             input_tokens=input_tokens if role == "assistant" else None,
             output_tokens=output_tokens if role == "assistant" else None,
+            attachments=attachments,
         )
 
     def get_messages(self, conversation_id: str, limit: int = 100) -> List[Message]:
@@ -256,6 +331,7 @@ class ConversationStore:
                 "id": cast(str, m.id),
                 "role": cast(str, m.role),
                 "parts": json.loads(cast(str, m.content)),
+                "attachments": self.attachments_for(cast(str, m.id)),
             }
             for m in self.get_messages(conversation_id, limit)
         ]

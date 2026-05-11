@@ -1,9 +1,9 @@
 import re
 import time
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Dict, List, Optional, Protocol, runtime_checkable
 
-from waifu_types import AssistantMessage, BaseHook, BaseMessage, ConversationMode, HookContext, UserMessage
+from waifu_types import BaseHook, BaseMessage, ConversationMode, HookContext, UserMessage
 
 if TYPE_CHECKING:
     from waifu.voice.service import VoiceService
@@ -209,7 +209,8 @@ class EmotionHook(BaseHook):
         tags = _EMOTION_TAG_PATTERN.findall(text)
         if tags:
             result = [
-                e for tag in tags
+                e
+                for tag in tags
                 if (e := self._emotion_map.get(tag.lower(), tag.lower())) and (allowed is None or e in allowed)
             ]
             if result:
@@ -248,7 +249,7 @@ class LoggingHook(BaseHook):
     name = "logging"
     priority = 100  # 最後執行
 
-    def __init__(self, log_level: int = logging.INFO) -> None:
+    def __init__(self, log_level: str = "INFO") -> None:
         self._level = log_level
         self._start_times: Dict[str, float] = {}
 
@@ -317,9 +318,7 @@ class TTSHook(BaseHook):
             live2d_expressions: list = ctx.session.metadata.get("live2d_expressions", [])
             allowed = live2d_expressions or None
 
-            async for result in self._voice.synthesize_sentences(
-                ctx.response, need_lipsync=ctx.request.need_lipsync
-            ):
+            async for result in self._voice.synthesize_sentences(ctx.response, need_lipsync=ctx.request.need_lipsync):
                 emotion: Optional[str] = None
                 if self._emotion_hook is not None:
                     emotion = self._emotion_hook._detect(result.sentence, allowed)

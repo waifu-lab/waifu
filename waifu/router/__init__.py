@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
 from fastapi import FastAPI
@@ -29,6 +30,7 @@ def include_routers(
     config_service: "AppConfigService | None" = None,
     character_service: "CharacterService | None" = None,
     conversation_store: "ConversationStore | None" = None,
+    attachments_dir: "Path | None" = None,
     plugin_registry: "PluginRegistry | None" = None,
     plugin_manager: "PluginManager | None" = None,
     session_manager: "SessionManager | None" = None,
@@ -76,6 +78,11 @@ def include_routers(
         from .conversation import make_conversation_router
 
         app.include_router(make_conversation_router(conversation_store))
+
+        if attachments_dir is not None:
+            from .attachments import make_attachments_router
+
+            app.include_router(make_attachments_router(conversation_store, attachments_dir))
 
     if plugin_registry is not None:
         from .tools import make_tools_router
