@@ -1,5 +1,4 @@
 import json
-import logging
 from typing import TYPE_CHECKING, Any, Dict, List
 
 from hai.tool import Tool
@@ -8,7 +7,7 @@ if TYPE_CHECKING:
     from waifu.gateway.adapters.waifu_node import NodeSession, WaifuNodeAdapter
     from waifu.plugin import PluginRegistry
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class NodeManager:
@@ -40,7 +39,7 @@ class NodeManager:
         }
         if suffix in existing_suffixes:
             logger.warning(
-                "NodeManager: node %r has duplicate display_name %r — tool names will collide",
+                "NodeManager: node {!r} has duplicate display_name {!r} — tool names will collide",
                 session.node_id,
                 session.display_name or session.node_id,
             )
@@ -58,7 +57,7 @@ class NodeManager:
 
         self._node_tools[session.node_id] = names
         logger.info(
-            "NodeManager: node %r (%s) connected, registered tools=%s",
+            "NodeManager: node {!r} ({}) connected, registered tools={}",
             session.node_id,
             session.display_name,
             names,
@@ -68,7 +67,7 @@ class NodeManager:
         self._sessions.pop(node_id, None)
         for name in self._node_tools.pop(node_id, []):
             self._registry.remove_tool(name)
-        logger.info("NodeManager: node %r disconnected, tools removed", node_id)
+        logger.info("NodeManager: node {!r} disconnected, tools removed", node_id)
 
     @staticmethod
     def _build_tool(tool_name: str, action: str, schema: Dict[str, Any], session: "NodeSession") -> Tool:

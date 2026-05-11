@@ -1,5 +1,4 @@
 import asyncio
-import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
     from waifu.node.manager import NodeManager
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 PROTOCOL_VERSION = "1"
 
@@ -184,11 +183,11 @@ class NodeSession:
             asyncio.create_task(self._handle_tool_call(msg))
 
         elif msg_type == "node_bye":
-            logger.info("node %s: node_bye reason=%s", self.node_id, msg.get("reason"))
+            logger.info("node {}: node_bye reason={}", self.node_id, msg.get("reason"))
             return False
 
         elif msg_type != "node_pong":
-            logger.debug("node %s: unknown message type=%s", self.node_id, msg_type)
+            logger.debug("node {}: unknown message type={}", self.node_id, msg_type)
 
         return True
 
@@ -354,7 +353,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
             return
 
         if hello.get("type") != "node_hello":
-            logger.warning("waifu-node: expected node_hello, got %s", hello.get("type"))
+            logger.warning("waifu-node: expected node_hello, got {}", hello.get("type"))
             await websocket.close(code=4001)
             return
 
@@ -382,7 +381,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
 
         # 同一 node_id 重連：清除舊 session
         if node_id in self._sessions:
-            logger.info("waifu-node: node %r reconnected, replacing old session", node_id)
+            logger.info("waifu-node: node {!r} reconnected, replacing old session", node_id)
             self._sessions[node_id].cancel_pending()
             del self._sessions[node_id]
 
@@ -413,7 +412,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
         })
 
         logger.info(
-            "waifu-node connected: node_id=%s display_name=%s platform=%s "
+            "waifu-node connected: node_id={} display_name={} platform={} "
             "caps=%s tools=%s skills=%s total_nodes=%d",
             node_id, session.display_name, session.platform,
             sorted(caps), accepted_tool_names,
@@ -434,7 +433,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
             if self._node_manager is not None:
                 self._node_manager.on_node_disconnect(node_id)
             logger.info(
-                "waifu-node disconnected: node_id=%s total_nodes=%d",
+                "waifu-node disconnected: node_id={} total_nodes={}",
                 node_id, len(self._sessions),
             )
 

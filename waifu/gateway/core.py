@@ -1,5 +1,4 @@
 import asyncio
-import logging
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from waifu_types import BaseGatewayAdapter, IncomingRequest, OutgoingResponse
@@ -7,7 +6,7 @@ from waifu_types import BaseGatewayAdapter, IncomingRequest, OutgoingResponse
 from .lane import LaneManager
 from .session import SessionManager
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class GatewayCore:
@@ -63,10 +62,10 @@ class GatewayCore:
 
     async def _handle_request(self, request: IncomingRequest) -> None:
         if self._dispatch_handler is None:
-            logger.warning("GatewayCore: no dispatch_handler set, dropping request %s", request.request_id)
+            logger.warning("GatewayCore: no dispatch_handler set, dropping request {}", request.request_id)
             return
         try:
             response = await self._dispatch_handler(request)
             await request.reply_fn(response)
         except Exception:
-            logger.exception("GatewayCore: error handling request %s", request.request_id)
+            logger.exception("GatewayCore: error handling request {}", request.request_id)

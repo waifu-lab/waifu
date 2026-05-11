@@ -1,4 +1,3 @@
-import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
@@ -7,7 +6,7 @@ from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, Incomi
 if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class DiscordAdapter(BaseGatewayAdapter):
@@ -52,7 +51,7 @@ class DiscordAdapter(BaseGatewayAdapter):
 
         @client.event
         async def on_ready() -> None:
-            logger.info("Discord adapter ready: %s", client.user)
+            logger.info("Discord adapter ready: {}", client.user)
 
         @client.event
         async def on_message(message: discord.Message) -> None:

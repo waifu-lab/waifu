@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import re
 import time
 from typing import Any, Dict, Optional, cast
@@ -67,7 +66,7 @@ def _to_waifu_message(m: Any) -> BaseMessage:
     return GenericMessage(**d)
 
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 def _config_seed(config: "WaifuConfig") -> dict:
@@ -277,7 +276,7 @@ class Waifu:
                     {},
                 )
             except Exception:
-                logger.exception("Failed to restore MCP server: %s", row.name)
+                logger.exception("Failed to restore MCP server: {}", row.name)
 
         for row in self._plugin_repo.list_enabled():
             try:
@@ -285,7 +284,7 @@ class Waifu:
                 plugin = self._plugin_loader.resolve(cast(str, row.plugin_name))
                 await self._plugin_manager.load(plugin, config)
             except Exception:
-                logger.exception("Failed to restore plugin: %s", row.name)
+                logger.exception("Failed to restore plugin: {}", row.name)
 
     @property
     def gateway(self) -> GatewayCore:
@@ -376,7 +375,7 @@ class Waifu:
             result = await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
         except asyncio.CancelledError:
             logger.warning(
-                "Request %s cancelled (client disconnected), writing interrupt placeholder",
+                "Request {} cancelled (client disconnected), writing interrupt placeholder",
                 request.request_id,
             )
             placeholder = "〔已中斷〕"
@@ -387,7 +386,7 @@ class Waifu:
             raise  # 繼續往上傳遞，讓 adapter 正常收尾
         except Exception as exc:
             logger.exception(
-                "AgentRunner failed for request %s, writing fallback message",
+                "AgentRunner failed for request {}, writing fallback message",
                 request.request_id,
             )
             # 保持 transcript 閉環

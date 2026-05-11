@@ -1,10 +1,9 @@
 import asyncio
-import logging
 from typing import Awaitable, Callable, Dict, Tuple
 
 from waifu_types import IncomingRequest
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 _Handler = Callable[[IncomingRequest], Awaitable[None]]
 
@@ -22,13 +21,17 @@ class Lane:
             self._task = asyncio.create_task(self._drain())
 
     async def _drain(self) -> None:
+        from waifu.logger import cid
+
         while not self._queue.empty():
             item, handler = self._queue.get_nowait()
+            token = cid.set(item.conversation_id)
             try:
                 await handler(item)
             except Exception as e:
-                logger.exception("Lane handler error: %s", e)
+                logger.exception("Lane handler error: {}", e)
             finally:
+                cid.reset(token)
                 self._queue.task_done()
 
 

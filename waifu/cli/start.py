@@ -1,8 +1,9 @@
 import argparse
-import logging
 import sys
 from pathlib import Path
 from typing import List, Union
+
+from waifu.logger import setup_logging
 from waifu.store.paths import AppPaths
 
 
@@ -20,10 +21,7 @@ def cmd_start(args: List[str]) -> None:
     if ns.debug:
         ns.log_level = "debug"
 
-    logging.basicConfig(
-        level=ns.log_level.upper(),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    setup_logging(level=ns.log_level.upper())
 
     try:
         import uvicorn

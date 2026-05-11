@@ -1,4 +1,3 @@
-import logging
 import uuid
 from typing import TYPE_CHECKING, Optional
 
@@ -7,7 +6,7 @@ from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, Incomi
 if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class TelegramAdapter(BaseGatewayAdapter):
@@ -134,7 +133,7 @@ class TelegramAdapter(BaseGatewayAdapter):
             await app.initialize()
             me = await app.bot.get_me()
             adapter._bot_username = me.username
-            logger.info("Telegram adapter ready: @%s", me.username)
+            logger.info("Telegram adapter ready: @{}", me.username)
             await app.start()
             await app.updater.start_polling()
 

@@ -1,4 +1,3 @@
-import logging
 import re
 import time
 from collections import defaultdict
@@ -21,7 +20,7 @@ class RelationshipMemoryStore(MemoryStore, Protocol):
     async def get_relationship(self, key: str) -> str: ...
 
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class RateLimitHook(BaseHook):
@@ -52,7 +51,7 @@ class RateLimitHook(BaseHook):
         if len(self._records[cid]) >= self._max_rpm:
             ctx.abort = True
             ctx.response = self._message
-            logger.warning("Rate limit hit: %s (%d rpm)", cid, len(self._records[cid]))
+            logger.warning("Rate limit hit: {} ({} rpm)", cid, len(self._records[cid]))
         else:
             self._records[cid].append(now)
 
@@ -281,7 +280,7 @@ class LoggingHook(BaseHook):
         )
 
         if ctx.trace is not None:
-            logger.debug("trace: %s", ctx.trace)
+            logger.debug("trace: {}", ctx.trace)
 
         return ctx
 

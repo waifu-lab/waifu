@@ -1,5 +1,4 @@
 import json
-import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import httpx
@@ -10,7 +9,7 @@ from waifu import __version__
 if TYPE_CHECKING:
     from hai.tool.toolcalling import Tool
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class SSEMCPAdapter(BaseMCPAdapter):
@@ -31,7 +30,7 @@ class SSEMCPAdapter(BaseMCPAdapter):
         self._client = httpx.AsyncClient(timeout=30.0)
         await self._initialize()
         self._tools_cache = await self._fetch_tools()
-        logger.info("SSEMCPAdapter connected: %s (%d tools)", self._url, len(self._tools_cache))
+        logger.info("SSEMCPAdapter connected: {} ({} tools)", self._url, len(self._tools_cache))
 
     async def disconnect(self) -> None:
         if self._client:

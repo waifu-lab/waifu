@@ -1,5 +1,4 @@
 import base64
-import logging
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
@@ -12,7 +11,7 @@ if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
     from waifu.voice.service import VoiceService
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class WebSocketAdapter(BaseGatewayAdapter):
@@ -74,7 +73,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     if self._core is not None:
                         session = self._core.session_manager.get_or_create(session_token)
                         session.metadata["live2d_expressions"] = expressions
-                        logger.debug("live2dsync: stored %d expressions for session %s", len(expressions), session_token)
+                        logger.debug("live2dsync: stored {} expressions for session {}", len(expressions), session_token)
                     await websocket.send_json({"type": "live2dsync_ack", "count": len(expressions)})
                     continue
 
@@ -93,13 +92,13 @@ class WebSocketAdapter(BaseGatewayAdapter):
                         audio_format: str = data.get("format", "webm")
                         audio_bytes = base64.b64decode(audio_b64)
                         content = await self._voice.transcribe(audio_bytes, format=audio_format)
-                        logger.debug("STT transcription result: %r", content)
+                        logger.debug("STT transcription result: {!r}", content)
                         if not content.strip():
                             logger.debug("STT returned empty content, ignoring")
                             continue
                         await websocket.send_json({"type": "transcript", "request_id": request_id, "content": content})
                     except Exception:
-                        logger.exception("STT transcription failed for session %s", session_token)
+                        logger.exception("STT transcription failed for session {}", session_token)
                         continue
                 else:
                     content = data.get("content", "")
@@ -138,7 +137,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     await self._core.dispatch(request)
 
         except Exception:
-            logger.debug("WebSocket connection closed: %s", session_token)
+            logger.debug("WebSocket connection closed: {}", session_token)
 
 
 def _make_ws_reply_fn(websocket: "WebSocket", request_id: str):

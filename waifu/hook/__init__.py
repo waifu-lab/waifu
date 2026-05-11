@@ -1,9 +1,8 @@
-import logging
 from typing import List
 
 from waifu_types import BaseHook, HookContext
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class HookRegistry:
@@ -37,7 +36,7 @@ class HookPipeline:
             try:
                 ctx = await hook.pre(ctx)
             except Exception:
-                logger.exception("Hook %s pre() error", hook.name)
+                logger.exception("Hook {} pre() error", hook.name)
         return ctx
 
     async def run_mid(self, ctx: HookContext) -> HookContext:
@@ -45,7 +44,7 @@ class HookPipeline:
             try:
                 ctx = await hook.mid(ctx)
             except Exception:
-                logger.exception("Hook %s mid() error", hook.name)
+                logger.exception("Hook {} mid() error", hook.name)
         return ctx
 
     async def run_post(self, ctx: HookContext) -> HookContext:
@@ -53,7 +52,7 @@ class HookPipeline:
             try:
                 ctx = await hook.post(ctx)
             except Exception:
-                logger.exception("Hook %s post() error", hook.name)
+                logger.exception("Hook {} post() error", hook.name)
         return ctx
 
 

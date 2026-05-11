@@ -1,4 +1,3 @@
-import logging
 import inspect
 import re
 from dataclasses import dataclass
@@ -13,7 +12,7 @@ if TYPE_CHECKING:
     from hai.providers.providers import ProviderText
     from hai.tool import Tool
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 _MAX_RETRIES = 1
 
@@ -90,7 +89,7 @@ class AgentRunner:
                 fn(chunk=clean)
 
         async def _on_tool_error(tool_name: str, exc: Exception) -> None:
-            logger.warning("Tool '%s' raised an error: %s", tool_name, exc)
+            logger.warning("Tool '{}' raised an error: {}", tool_name, exc)
             fn = ctx.request.reply_fn
             msg = f"工具 `{tool_name}` 執行失敗：{exc}\n"
             if inspect.iscoroutinefunction(fn):
@@ -138,7 +137,7 @@ class AgentRunner:
                 state.transition = "recovering" if attempt < _MAX_RETRIES else "failed"
                 if attempt < _MAX_RETRIES:
                     logger.warning(
-                        "AgentRunner: attempt %d/%d failed (%s), retrying…",
+                        "AgentRunner: attempt {}/{} failed ({}), retrying…",
                         attempt + 1,
                         _MAX_RETRIES + 1,
                         last_exc,

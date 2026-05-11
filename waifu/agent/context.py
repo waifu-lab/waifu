@@ -1,5 +1,4 @@
 import base64
-import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -11,7 +10,7 @@ if TYPE_CHECKING:
     from waifu.config import ContextConfig
     from waifu.hook import HookRegistry
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 def _estimate_tokens(messages: List[AppMessage]) -> int:
@@ -70,7 +69,7 @@ def _build_user_message(content: str, attachments: List[Attachment]) -> UserMess
             )
         elif att.content_type in _SUPPORTED_FILE_TYPES:
             if not att.data and not att.url:
-                logger.warning("Attachment '%s' has no data or url, skipping", att.filename)
+                logger.warning("Attachment '{}' has no data or url, skipping", att.filename)
                 continue
             parts.append(
                 {
@@ -82,7 +81,7 @@ def _build_user_message(content: str, attachments: List[Attachment]) -> UserMess
                 }
             )
         else:
-            logger.warning("Unsupported attachment type '%s' (%s), skipping", att.content_type, att.filename)
+            logger.warning("Unsupported attachment type '{}' ({}), skipping", att.content_type, att.filename)
     return UserMessage(content=parts)
 
 
@@ -141,7 +140,7 @@ class ContextBuilder:
                 after = _estimate_tokens(msgs)
                 if after < before:
                     logger.warning(
-                        "Context budget exceeded (%d tokens > %d threshold): trimmed from %d to %d messages",
+                        "Context budget exceeded ({} tokens > {} threshold): trimmed from {} to {} messages",
                         before,
                         threshold,
                         len(msgs) + (before - after),

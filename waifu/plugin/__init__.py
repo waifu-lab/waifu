@@ -1,4 +1,3 @@
-import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -11,7 +10,7 @@ if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
     from waifu.hook import HookRegistry
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class PluginState(str, Enum):
@@ -146,10 +145,10 @@ class PluginManager:
             await plugin.on_load(ctx)
             await plugin.on_enable()
             self._plugins[name] = (plugin, PluginState.enabled)
-            logger.info("Plugin loaded: %s v%s", name, plugin.version)
+            logger.info("Plugin loaded: {} v{}", name, plugin.version)
         except Exception:
             self._plugins[name] = (plugin, PluginState.error)
-            logger.exception("Plugin load error: %s", name)
+            logger.exception("Plugin load error: {}", name)
             raise
 
     async def unload(self, name: str) -> None:
@@ -165,7 +164,7 @@ class PluginManager:
         await plugin.on_disable()
         await plugin.on_unload()
         del self._plugins[name]
-        logger.info("Plugin unloaded: %s", name)
+        logger.info("Plugin unloaded: {}", name)
 
     async def enable(self, name: str) -> None:
         plugin, _ = self._plugins[name]

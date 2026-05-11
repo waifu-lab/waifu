@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from waifu_types import BaseMCPAdapter
@@ -10,7 +9,7 @@ from waifu import __version__
 if TYPE_CHECKING:
     from hai.tool.toolcalling import Tool
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class StdioMCPAdapter(BaseMCPAdapter):
@@ -37,7 +36,7 @@ class StdioMCPAdapter(BaseMCPAdapter):
         )
         await self._initialize()
         self._tools_cache = await self._fetch_tools()
-        logger.info("StdioMCPAdapter connected: %s (%d tools)", self._cmd[0], len(self._tools_cache))
+        logger.info("StdioMCPAdapter connected: {} ({} tools)", self._cmd[0], len(self._tools_cache))
 
     async def disconnect(self) -> None:
         if self._proc and self._proc.returncode is None:

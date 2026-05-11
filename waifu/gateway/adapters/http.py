@@ -1,6 +1,5 @@
 import asyncio
 import json
-import logging
 import uuid
 from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
@@ -11,7 +10,7 @@ if TYPE_CHECKING:
     from waifu.gateway.core import GatewayCore
     from waifu.router.chat import ChatRequest
 
-logger = logging.getLogger(__name__)
+from waifu.logger import logger
 
 
 class HTTPAdapter(BaseGatewayAdapter):
