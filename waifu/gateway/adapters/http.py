@@ -4,6 +4,7 @@ import uuid
 from typing import TYPE_CHECKING, AsyncIterator, List, Optional
 
 from fastapi.responses import StreamingResponse
+
 from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
@@ -38,18 +39,25 @@ class HTTPAdapter(BaseGatewayAdapter):
 
         request_id = str(uuid.uuid4())
         conversation_id = body.conversation_id or str(uuid.uuid4())
-        queue: asyncio.Queue[Optional[str]] = asyncio.Queue()
+        queue: asyncio.Queue[Optional[dict]] = asyncio.Queue()
 
         chunk_sent = False
 
-        async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+        async def reply_fn(
+            response: Optional[OutgoingResponse] = None,
+            *,
+            chunk: Optional[str] = None,
+            event: Optional[dict] = None,
+        ) -> None:
             nonlocal chunk_sent
             if chunk is not None:
                 chunk_sent = True
-                await queue.put(chunk)
+                await queue.put({"type": "chunk", "content": chunk})
+            elif event is not None:
+                await queue.put({"type": "event", **event})
             elif response is not None:
                 if response.content and not chunk_sent:
-                    await queue.put(response.content)
+                    await queue.put({"type": "chunk", "content": response.content})
                 await queue.put(None)  # sentinel: stream end
 
         request = IncomingRequest(
@@ -73,11 +81,11 @@ class HTTPAdapter(BaseGatewayAdapter):
 
 
 async def _sse_stream(queue: asyncio.Queue) -> AsyncIterator[str]:
-    """從 queue 讀取 chunks，格式化為 SSE data lines"""
+    """從 queue 讀取訊息（chunk / event），格式化為 SSE data lines"""
     while True:
-        chunk = await queue.get()
-        if chunk is None:
+        item = await queue.get()
+        if item is None:
             yield "data: [DONE]\n\n"
             break
-        payload = json.dumps({"content": chunk}, ensure_ascii=False)
+        payload = json.dumps(item, ensure_ascii=False)
         yield f"data: {payload}\n\n"

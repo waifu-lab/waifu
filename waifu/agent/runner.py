@@ -97,6 +97,19 @@ class AgentRunner:
             else:
                 fn(chunk=msg)
 
+        async def _emit_event(payload: dict) -> None:
+            fn = ctx.request.reply_fn
+            if inspect.iscoroutinefunction(fn):
+                await fn(event=payload)
+            else:
+                fn(event=payload)
+
+        async def _on_tool_call(tool_name: str, arguments: str) -> None:
+            await _emit_event({"event": "tool_call", "data": {"name": tool_name, "arguments": arguments}})
+
+        async def _on_tool_result(tool_name: str, result: str) -> None:
+            await _emit_event({"event": "tool_result", "data": {"name": tool_name, "result": result}})
+
         cid = ctx.request.conversation_id
         state = self.get_state(cid)
         state.transition = "running"
@@ -115,7 +128,13 @@ class AgentRunner:
                     provider=self.provider,
                     system_prompt=system_prompt,
                     tools=tools,
-                    callbacks=AgentCallbacks(on_chunk=_on_chunk, error=_on_error, on_tool_error=_on_tool_error),
+                    callbacks=AgentCallbacks(
+                        on_chunk=_on_chunk,
+                        error=_on_error,
+                        on_tool_error=_on_tool_error,
+                        tool_call=_on_tool_call,
+                        tool_result=_on_tool_result,
+                    ),
                     session_id=cid,
                     context_manager=context_manager,
                 )
