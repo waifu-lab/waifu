@@ -183,6 +183,6 @@ class PluginManager:
         ]
 
 
-from .builtin import HookPlugin, MCPPlugin, ToolPlugin  # noqa: E402
+from .builtin import HookPlugin, ToolPlugin  # noqa: E402
 
-__all__ = ["PluginManager", "PluginRegistry", "PluginState", "ToolPlugin", "HookPlugin", "MCPPlugin"]
+__all__ = ["HookPlugin", "PluginManager", "PluginRegistry", "PluginState", "ToolPlugin"]

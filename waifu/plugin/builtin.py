@@ -1,6 +1,6 @@
 from typing import List, TYPE_CHECKING
 
-from waifu_types import BaseHook, BaseMCPAdapter, BasePlugin, PluginContext
+from waifu_types import BaseHook, BasePlugin, PluginContext
 
 if TYPE_CHECKING:
     from hai.tool import Tool
@@ -27,22 +27,3 @@ class HookPlugin(BasePlugin):
 
     async def on_load(self, ctx: PluginContext) -> None:
         ctx.register_hook(self._hook)
-
-
-class MCPPlugin(BasePlugin):
-    """將任意 BaseMCPAdapter 包裝成插件，負責連線生命週期"""
-
-    def __init__(self, name: str, adapter: BaseMCPAdapter) -> None:
-        self.name = name
-        self._adapter = adapter
-
-    async def on_load(self, ctx: PluginContext) -> None:
-        await self._adapter.connect()
-        tools = await self._adapter.list_tools()
-        for tool in tools:
-            ctx.register_tool(tool)
-        ctx.register_mcp(self.name, self._adapter)
-
-    async def on_unload(self) -> None:
-        await self._adapter.disconnect()
-

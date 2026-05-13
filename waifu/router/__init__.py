@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from waifu.service.config import AppConfigService
     from waifu.service.mcp import MCPService
     from waifu.service.plugin import PluginService
+    from waifu.service.skill import SkillService
     from waifu.store.conversation import ConversationStore
     from waifu.store.repositories.analytics import TokenAnalyticsRepository
 
@@ -27,6 +28,7 @@ def include_routers(
     waifu_node_adapter: "WaifuNodeAdapter | None" = None,
     plugin_service: "PluginService | None" = None,
     mcp_service: "MCPService | None" = None,
+    skill_service: "SkillService | None" = None,
     config_service: "AppConfigService | None" = None,
     character_service: "CharacterService | None" = None,
     conversation_store: "ConversationStore | None" = None,
@@ -63,6 +65,11 @@ def include_routers(
         from .mcp import make_mcp_router
 
         app.include_router(make_mcp_router(mcp_service))
+
+    if skill_service is not None:
+        from .skill import make_skill_router
+
+        app.include_router(make_skill_router(skill_service))
 
     if config_service is not None:
         from .config import make_config_router

@@ -1,16 +1,15 @@
 import json
 from typing import List, Optional, cast
 
-from waifu.plugin import PluginManager
-from waifu.plugin.builtin import MCPPlugin
+from waifu.mcp import MCPManager, SSEMCPAdapter, StdioMCPAdapter
 from waifu.store.models import MCPServer
 from waifu.store.repositories.mcp import MCPRepository
 
 
 class MCPService:
-    def __init__(self, repo: MCPRepository, plugin_manager: PluginManager) -> None:
+    def __init__(self, repo: MCPRepository, manager: MCPManager) -> None:
         self._repo = repo
-        self._pm = plugin_manager
+        self._manager = manager
 
     async def add(
         self,
@@ -21,11 +20,11 @@ class MCPService:
         config: Optional[dict] = None,
     ) -> MCPServer:
         adapter = self._build_adapter(type, command, url)
-        await self._pm.load(MCPPlugin(name, adapter))
+        await self._manager.add(name, adapter)
         return self._repo.create(name, type, command, url, config or {})
 
     async def remove(self, name: str) -> None:
-        await self._pm.unload(name)
+        await self._manager.remove(name)
         self._repo.delete(name)
 
     async def enable(self, name: str) -> None:
@@ -38,19 +37,17 @@ class MCPService:
             json.loads(row_command) if row_command else None,
             cast(Optional[str], row.url),
         )
-        await self._pm.load(MCPPlugin(name, adapter))
+        await self._manager.add(name, adapter)
         self._repo.set_enabled(name, True)
 
     async def disable(self, name: str) -> None:
-        await self._pm.unload(name)
+        await self._manager.remove(name)
         self._repo.set_enabled(name, False)
 
     def list_all(self) -> List[MCPServer]:
         return self._repo.list_all()
 
     def _build_adapter(self, type: str, command, url: Optional[str]):
-        from waifu.mcp import SSEMCPAdapter, StdioMCPAdapter
-
         if type == "stdio":
             return StdioMCPAdapter(command)
         if url is None:

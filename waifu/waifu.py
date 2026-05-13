@@ -10,13 +10,16 @@ from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.gateway import GatewayCore
 from waifu.hook import HookPipeline, HookRegistry
 from waifu.hook.builtin import EmotionHook, LoggingHook, MemoryHook, TTSHook
+from waifu.mcp.manager import MCPManager
 from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
 from waifu.plugin.loader import PluginLoader
+from waifu.skill import SkillPromptHook, SkillRegistry, make_skill_tool, scan_skills
 from waifu.service.character import CharacterService
 from waifu.service.config import AppConfigService
 from waifu.service.mcp import MCPService
 from waifu.service.plugin import PluginService
+from waifu.service.skill import SkillService
 from waifu.store import AppPaths, CharacterManager, Database, FileMemoryStore
 from waifu.store.conversation import ConversationStore
 from waifu.store.repositories import (
@@ -165,6 +168,16 @@ class Waifu:
         self._plugin_registry = PluginRegistry()
         self._node_manager = NodeManager(self._plugin_registry)
         self._register_builtin_tools()
+
+        self._skill_registry = SkillRegistry()
+        for manifest in scan_skills(self._paths.skills_dir):
+            self._skill_registry.add(manifest)
+        logger.info("Loaded {} skill(s) from {}", len(self._skill_registry), self._paths.skills_dir)
+        self._plugin_registry.add_tool(make_skill_tool(self._skill_registry))
+        self._hook_registry.register(SkillPromptHook(self._skill_registry))
+
+        self._mcp_manager = MCPManager(self._plugin_registry)
+
         self._plugin_manager = PluginManager(
             hook_registry=self._hook_registry,
             plugin_registry=self._plugin_registry,
@@ -190,7 +203,8 @@ class Waifu:
 
         # Services
         self._plugin_service = PluginService(self._plugin_repo, self._plugin_manager, self._plugin_loader)
-        self._mcp_service = MCPService(self._mcp_repo, self._plugin_manager)
+        self._mcp_service = MCPService(self._mcp_repo, self._mcp_manager)
+        self._skill_service = SkillService(self._skill_registry, self._paths.skills_dir)
         self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
         self._character_service = CharacterService(self._character_repo, self._relationship_repo)
         self._token_analytics = TokenAnalyticsRepository()
@@ -329,6 +343,18 @@ class Waifu:
     @property
     def plugin_registry(self) -> PluginRegistry:
         return self._plugin_registry
+
+    @property
+    def skill_registry(self) -> SkillRegistry:
+        return self._skill_registry
+
+    @property
+    def mcp_manager(self) -> MCPManager:
+        return self._mcp_manager
+
+    @property
+    def skill_service(self) -> SkillService:
+        return self._skill_service
 
     @property
     def localmode(self) -> bool:

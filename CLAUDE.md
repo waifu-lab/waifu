@@ -58,7 +58,7 @@ waifu = (
     .mount(DiscordAdapter(token=TOKEN))
     .use(RateLimitHook(max_rpm=60))
 )
-await waifu.plugin(MCPPlugin("fs", StdioMCPAdapter([...])))
+await waifu.mcp_service.add("fs", "stdio", command=[...])
 await waifu.start()
 ```
 
@@ -76,9 +76,10 @@ await waifu.start()
 **`waifu/plugin/`** — Plugin system
 - `PluginManager.load(plugin, config)` calls `plugin.on_load(ctx)` where plugins register hooks/tools/MCP adapters
 - `PluginRegistry`: holds all registered tools/MCP adapters for the `ContextBuilder`
-- Built-in plugin wrappers in `waifu/plugin/builtin.py`: `ToolPlugin`, `HookPlugin`, `MCPPlugin`
+- Built-in plugin wrappers in `waifu/plugin/builtin.py`: `ToolPlugin`, `HookPlugin`
 
-**`waifu/mcp/`** — MCP bridge
+**`waifu/mcp/`** — MCP bridge (system-level, not a plugin)
+- `MCPManager`: owns adapter lifecycle, registers tools into `PluginRegistry`
 - `StdioMCPAdapter`: spawns a subprocess (JSON-RPC over stdin/stdout)
 - `SSEMCPAdapter`: connects to HTTP SSE MCP server
 

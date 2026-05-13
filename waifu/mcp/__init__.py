@@ -1,4 +1,5 @@
-from .stdio import StdioMCPAdapter
+from .manager import MCPManager
 from .sse import SSEMCPAdapter
+from .stdio import StdioMCPAdapter
 
-__all__ = ["StdioMCPAdapter", "SSEMCPAdapter"]
+__all__ = ["MCPManager", "SSEMCPAdapter", "StdioMCPAdapter"]

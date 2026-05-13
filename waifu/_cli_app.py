@@ -41,6 +41,7 @@ async def _lifespan(app: FastAPI):
         waifu_node_adapter=waifu_node_adapter,
         plugin_service=waifu.plugin_service,
         mcp_service=waifu.mcp_service,
+        skill_service=waifu.skill_service,
         config_service=waifu.config_service,
         character_service=waifu.character_service,
         conversation_store=waifu.conversation_store,
