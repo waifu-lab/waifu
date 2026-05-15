@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from shuvi.context import ContextManager
 from shuvi.types import AppMessage
-from waifu_types import Attachment, ConversationMode, HookContext, UserMessage
+from waifu_types import Attachment, ConversationMode, HookContext, SystemPromptLayers, UserMessage
 
 if TYPE_CHECKING:
     from waifu.config import ContextConfig
@@ -25,7 +25,8 @@ def _estimate_tokens(messages: List[AppMessage]) -> int:
         total += len(text) // 4
     return total
 
-#FIXME: 好醜
+
+# FIXME: 好醜
 _SUPPORTED_FILE_TYPES = {
     "application/pdf",
     "text/plain",
@@ -52,12 +53,6 @@ def _to_data_url(att: Attachment) -> str:
 
 
 def _build_user_message(content: str, attachments: List[Attachment]) -> UserMessage:
-    """將文字與附件統一正規化為 multimodal content list。
-
-    - image/*         → image_url part（OpenAI vision）
-    - PDF/文件類型    → file part（OpenAI native file input）
-    - 其他            → 略過並 warning
-    """
     parts: List[Dict[str, Any]] = [{"type": "text", "text": content}]
     for att in attachments:
         if att.content_type.startswith("image/"):
@@ -91,14 +86,17 @@ class ContextBuilder:
         self._hook_registry = hook_registry
 
     def build_system_prompt(self, ctx: HookContext) -> str:
+        return self.build_system_prompt_layers(ctx).render()
+
+    def build_system_prompt_layers(self, ctx: HookContext) -> SystemPromptLayers:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        parts: List[str] = []
+        layers = SystemPromptLayers()
 
         if self.config.soul_content:
-            parts.append(self.config.soul_content)
+            layers.identity.append(self.config.soul_content)
         else:
             template = self.config.system_prompt_template
-            parts.append(
+            layers.identity.append(
                 template.format(
                     now=now,
                     user_id=ctx.request.sender.user_id,
@@ -109,17 +107,17 @@ class ContextBuilder:
 
         relationship = ctx.metadata.get("relationship", "")
         if relationship:
-            parts.append(f"## 與當前對話者的關係\n{relationship}")
+            layers.identity.append(f"## 與當前對話者的關係\n{relationship}")
 
         if self._hook_registry is not None:
             for hook in self._hook_registry.hooks:
-                fragment = hook.system_prompt_fragment(ctx)
-                if fragment:
-                    parts.append(fragment)
+                hook.contribute_prompt(ctx, layers)
 
-        parts.append(f"當前對話者: {ctx.request.sender.display_name} ({ctx.request.sender.user_id})\n當前時間: {now}")
+        layers.identity.append(
+            f"當前對話者: {ctx.request.sender.display_name} ({ctx.request.sender.user_id})\n當前時間: {now}"
+        )
 
-        return "\n\n".join(parts)
+        return layers
 
     def build_context_manager(self, ctx: HookContext) -> ContextManager:
         config = self.config

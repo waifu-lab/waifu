@@ -2,6 +2,7 @@ from .adapter import BaseGatewayAdapter
 from .hook import BaseHook, HookContext
 from .mcp import BaseMCPAdapter
 from .plugin import BasePlugin, PluginContext
+from .prompt import SystemPromptLayers
 from .services import ConversationService, SessionService, VoiceServiceProtocol
 from .session import BaseSession
 from .trace import BaseExecutionTrace
@@ -43,6 +44,7 @@ __all__ = [
     "BaseGatewayAdapter",
     "BaseHook",
     "HookContext",
+    "SystemPromptLayers",
     "BaseSession",
     "BaseExecutionTrace",
     "BaseMCPAdapter",

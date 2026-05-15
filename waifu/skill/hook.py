@@ -1,8 +1,5 @@
-from typing import Optional
-
-from waifu_types import BaseHook, HookContext
-
 from waifu.skill.registry import SkillRegistry
+from waifu_types import BaseHook, HookContext, SystemPromptLayers
 
 
 class SkillPromptHook(BaseHook):
@@ -12,14 +9,14 @@ class SkillPromptHook(BaseHook):
     def __init__(self, registry: SkillRegistry) -> None:
         self._registry = registry
 
-    def system_prompt_fragment(self, ctx: HookContext) -> Optional[str]:  # noqa: ARG002
+    def contribute_prompt(self, ctx: HookContext, layers: SystemPromptLayers) -> None:  # noqa: ARG002
         items = self._registry.list_descriptions()
         if not items:
-            return None
+            return
         lines = [
             "## 可用的 Skills",
             '若以下某個 skill 的描述符合當前任務，呼叫 `skill(name="…")` 工具來載入完整指示。',
         ]
         for name, desc in items:
             lines.append(f"- **{name}**：{desc}")
-        return "\n".join(lines)
+        layers.tool_constraints.append("\n".join(lines))

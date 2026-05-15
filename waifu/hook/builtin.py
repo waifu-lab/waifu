@@ -3,7 +3,7 @@ import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, List, Optional, Protocol, runtime_checkable
 
-from waifu_types import BaseHook, BaseMessage, ConversationMode, HookContext, UserMessage
+from waifu_types import BaseHook, BaseMessage, ConversationMode, HookContext, SystemPromptLayers, UserMessage
 
 if TYPE_CHECKING:
     from waifu.voice.service import VoiceService
@@ -173,12 +173,12 @@ class EmotionHook(BaseHook):
         self._emotion_map = emotion_map or _DEFAULT_EMOTION_MAP
         self._default_emotion = default_emotion
 
-    def system_prompt_fragment(self, ctx: HookContext) -> Optional[str]:
+    def contribute_prompt(self, ctx: HookContext, layers: SystemPromptLayers) -> None:
         if not ctx.request.live2d:
-            return None
+            return
         expressions = ctx.session.metadata.get("live2d_expressions") or sorted(set(self._emotion_map.values()))
         options = ", ".join(expressions)
-        return (
+        layers.output_discipline.append(
             f"## 情緒表達\n"
             f"在每一句話的開頭加上情緒標籤，格式為 [emotion:xxx]，從以下選項中選擇：{options}\n"
             f"範例：[emotion:happy]今天天氣真好！[emotion:sad]但我有點擔心你。"

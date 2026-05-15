@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from waifu_types.prompt import SystemPromptLayers
 from waifu_types.session import BaseSession
 from waifu_types.trace import BaseExecutionTrace
 from waifu_types.types import BaseMessage, IncomingRequest
@@ -36,6 +37,6 @@ class BaseHook(ABC):
     async def post(self, ctx: HookContext) -> HookContext:
         return ctx
 
-    def system_prompt_fragment(self, ctx: HookContext) -> Optional[str]:  # noqa: ARG002
-        """回傳要注入 system prompt 的片段，None 表示不注入。"""
+    def contribute_prompt(self, ctx: HookContext, layers: SystemPromptLayers) -> None:  # noqa: ARG002
+        """新增片段到 system prompt 的特定層。"""
         return None
