@@ -19,6 +19,7 @@ dependencies = [
     "waifu_types",
     "textual>=0.89.1",
     "peewee>=3.17",
+    "croniter>=2.0",
     "tomli-w>=1.0",
     "loguru>=0.7",
     "rich>=13.0",

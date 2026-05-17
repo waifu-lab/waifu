@@ -95,6 +95,10 @@ class CronJob(BaseModel):
     type = CharField()  # at | every | cron
     schedule = CharField()
     command = TextField()
+    kind = CharField(default="shell")  # shell | llm
+    target_conversation_id = CharField(null=True)
+    sender_user_id = CharField(null=True)
+    sender_display_name = CharField(null=True)
     enabled = BooleanField(default=True)
     created_at = DateTimeField(default=datetime.utcnow)
 

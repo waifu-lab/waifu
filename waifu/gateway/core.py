@@ -1,22 +1,15 @@
 import asyncio
+import inspect
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from waifu.logger import logger
 from waifu_types import BaseGatewayAdapter, IncomingRequest, OutgoingResponse
 
 from .lane import LaneManager
 from .session import SessionManager
 
-from waifu.logger import logger
-
 
 class GatewayCore:
-    """
-    系統唯一入口：管理 Adapter、Session、LaneQueue
-
-    使用 DI：dispatch_handler 由外部（Waifu 主類）注入，
-    讓 GatewayCore 不直接依賴 Agent 或 Hook 邏輯
-    """
-
     def __init__(self, session_ttl: int = 3600, lane_max_queue: int = 10):
         self._adapters: List[BaseGatewayAdapter] = []
         self._session_manager = SessionManager(ttl=session_ttl)
@@ -51,6 +44,18 @@ class GatewayCore:
         """啟動所有掛載的 Adapter"""
         self._started = True
         await asyncio.gather(*[adapter.start(self) for adapter in self._adapters])
+
+    async def stop(self) -> None:
+        self._started = False
+        for adapter in self._adapters:
+            stop_fn = getattr(adapter, "stop", None)
+            if callable(stop_fn):
+                try:
+                    result = stop_fn()
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception:
+                    logger.exception("GatewayCore: error stopping adapter {}", getattr(adapter, "name", adapter))
 
     @property
     def session_manager(self) -> SessionManager:

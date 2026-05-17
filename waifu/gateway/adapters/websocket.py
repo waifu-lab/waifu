@@ -1,7 +1,9 @@
+import asyncio
 import base64
 import uuid
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
+from waifu.logger import logger
 from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
@@ -9,26 +11,21 @@ if TYPE_CHECKING:
     from fastapi.websockets import WebSocket
 
     from waifu.gateway.core import GatewayCore
+    from waifu.heartbeat.manager import HeartbeatManager
     from waifu.voice.service import VoiceService
-
-from waifu.logger import logger
 
 
 class WebSocketAdapter(BaseGatewayAdapter):
     """
     FastAPI WebSocket Adapter — SESSION 模式
 
-    支援兩種輸入訊息：
-      { type: "chat",  conversation_id?, request_id?, content, attachments?: [{filename, content_type, data: "<b64>"}] }
+    支援以下輸入訊息：
+      { type: "chat",  conversation_id?, request_id?, content, attachments?: [...] }
       { type: "voice", conversation_id?, request_id?, audio: "<b64>", format: "webm" }
+      { type: "event", name: "<event_name>", data: {...} }   ← heartbeat 觸發
 
-    voice 訊息會先呼叫 VoiceService.transcribe() 轉為文字，再以正常 chat 流程處理
-    若未設定 voice_service，voice 訊息會被靜默忽略
-
-    用法：
-        ws_adapter = WebSocketAdapter(voice_service=voice_svc)
-        ws_adapter.mount(app, path="/ws")
-        waifu.mount(ws_adapter)
+    voice 訊息會先呼叫 VoiceService.transcribe() 轉為文字，再以正常 chat 流程處理。
+    event 訊息路由到 HeartbeatManager，由各 handler 決定如何回應。
     """
 
     name = "websocket"
@@ -36,28 +33,29 @@ class WebSocketAdapter(BaseGatewayAdapter):
     def __init__(self, voice_service: Optional["VoiceService"] = None) -> None:
         self._core: Optional["GatewayCore"] = None
         self._voice: Optional["VoiceService"] = voice_service
+        self._heartbeat: Optional["HeartbeatManager"] = None
+        self._connections: Dict[str, "WebSocket"] = {}  # session_token → websocket
+
+    def set_heartbeat_manager(self, manager: "HeartbeatManager") -> None:
+        self._heartbeat = manager
 
     async def start(self, core: "GatewayCore") -> None:
         self._core = core
 
     async def send(self, response: OutgoingResponse) -> None:
-        # WebSocket 傳送由每個連線的 reply_fn 負責，此方法為 fallback
         pass
 
     def mount(self, app: "FastAPI", path: str = "/ws") -> None:
-        """將 WebSocket endpoint 掛載到 FastAPI app"""
-        from fastapi import WebSocket, WebSocketDisconnect
-
         adapter = self
 
         @app.websocket(path)
-        async def ws_endpoint(websocket: WebSocket) -> None:
+        async def ws_endpoint(websocket: "WebSocket") -> None:
             await adapter.handle(websocket)
 
     async def handle(self, websocket: "WebSocket") -> None:
-        """處理單一 WebSocket 連線的完整生命週期"""
         await websocket.accept()
         session_token = str(uuid.uuid4())
+        self._connections[session_token] = websocket
 
         capabilities = self._core.capabilities if self._core is not None else {}
         await websocket.send_json({"type": "connected", "session_token": session_token, **capabilities})
@@ -65,7 +63,6 @@ class WebSocketAdapter(BaseGatewayAdapter):
         try:
             while True:
                 data: Dict[str, Any] = await websocket.receive_json()
-
                 msg_type: str = data.get("type", "")
 
                 if msg_type == "live2dsync":
@@ -73,8 +70,20 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     if self._core is not None:
                         session = self._core.session_manager.get_or_create(session_token)
                         session.metadata["live2d_expressions"] = expressions
-                        logger.debug("live2dsync: stored {} expressions for session {}", len(expressions), session_token)
+                        logger.debug(
+                            "live2dsync: stored {} expressions for session {}", len(expressions), session_token
+                        )
                     await websocket.send_json({"type": "live2dsync_ack", "count": len(expressions)})
+                    continue
+
+                if msg_type == "event":
+                    if self._heartbeat is not None:
+                        event_name: str = data.get("name", "")
+                        event_data: dict = data.get("data", {})
+                        push_fn = _make_ws_push_fn(websocket)
+                        asyncio.create_task(
+                            self._heartbeat.dispatch(event_name, event_data, session_token, session_token, push_fn)
+                        )
                     continue
 
                 if msg_type not in ("chat", "voice"):
@@ -138,17 +147,20 @@ class WebSocketAdapter(BaseGatewayAdapter):
 
         except Exception:
             logger.debug("WebSocket connection closed: {}", session_token)
+        finally:
+            self._connections.pop(session_token, None)
+
+
+def _make_ws_push_fn(websocket: "WebSocket"):
+    """建立 heartbeat 推送函式，以 type: proactive 送出。"""
+
+    async def push_fn(content: str) -> None:
+        await websocket.send_json({"type": "proactive", "content": content})
+
+    return push_fn
 
 
 def _make_ws_reply_fn(websocket: "WebSocket", request_id: str):
-    """建立綁定到此 WebSocket 連線的 reply_fn
-
-    reply_fn 支援三種呼叫方式：
-      - reply_fn(response: OutgoingResponse)       → 送出剩餘 events + done 訊息
-      - reply_fn(chunk="...")                       → 送出 chunk 訊息（streaming）
-      - reply_fn(event={...})                       → 立即送出單一 event（TTSHook 逐句串流用）
-    """
-
     async def reply_fn(
         response: Optional[OutgoingResponse] = None,
         *,

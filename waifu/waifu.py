@@ -7,20 +7,22 @@ from typing import Any, Dict, Optional, cast
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
 from waifu.agent import AgentRunner, ContextBuilder
 from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
+from waifu.cron import CronExecutor, CronScheduler
 from waifu.gateway import GatewayCore
+from waifu.heartbeat import HeartbeatManager
 from waifu.hook import HookPipeline, HookRegistry
 from waifu.hook.builtin import EmotionHook, LoggingHook, MemoryHook, TTSHook
 from waifu.mcp.manager import MCPManager
 from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
 from waifu.plugin.loader import PluginLoader
-from waifu.skill import SkillPromptHook, SkillRegistry, make_skill_tool, scan_skills
 from waifu.service.character import CharacterService
 from waifu.service.config import AppConfigService
 from waifu.service.mcp import MCPService
 from waifu.service.plugin import PluginService
 from waifu.service.skill import SkillService
-from waifu.store import AppPaths, CharacterManager, Database, FileMemoryStore
+from waifu.skill import SkillPromptHook, SkillRegistry, make_skill_tool, scan_skills
+from waifu.store import AppPaths, CharacterManager, CronStore, Database, FileMemoryStore
 from waifu.store.conversation import ConversationStore
 from waifu.store.repositories import (
     AppConfigRepository,
@@ -192,6 +194,7 @@ class Waifu:
         self._plugin_loader = PluginLoader(self._paths.plugins_dir)
 
         # Repositories
+        self._cron_store = CronStore()
         self._plugin_repo = PluginRepository()
         self._mcp_repo = MCPRepository()
         self._config_repo = AppConfigRepository()
@@ -208,6 +211,11 @@ class Waifu:
         self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
         self._character_service = CharacterService(self._character_repo, self._relationship_repo)
         self._token_analytics = TokenAnalyticsRepository()
+
+        self._cron_executor = CronExecutor(dispatch_fn=self._dispatch)
+        self._cron_scheduler = CronScheduler(store=self._cron_store, executor=self._cron_executor)
+
+        self._heartbeat_manager = HeartbeatManager(dispatch_fn=self._dispatch)
 
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
@@ -242,10 +250,17 @@ class Waifu:
         """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP）"""
         self._gateway.mount(adapter)
         from waifu.gateway.adapters.waifu_node import WaifuNodeAdapter
+        from waifu.gateway.adapters.websocket import WebSocketAdapter
 
         if isinstance(adapter, WaifuNodeAdapter):
             self._node_manager.wire(adapter)
+        if isinstance(adapter, WebSocketAdapter):
+            adapter.set_heartbeat_manager(self._heartbeat_manager)
         return self
+
+    @property
+    def heartbeat_manager(self) -> HeartbeatManager:
+        return self._heartbeat_manager
 
     def use(self, hook: BaseHook) -> "Waifu":
         """注冊 Hook（pre/post 鏈）"""
@@ -262,8 +277,14 @@ class Waifu:
         self._started_at = time.time()
         self._collect_capabilities()
         await self._restore_from_db()
+        await self._cron_scheduler.start()
         if not self._localmode:
             await self._gateway.start()
+
+    async def stop(self) -> None:
+        """停止 Scheduler 與 Gateway"""
+        await self._cron_scheduler.stop()
+        await self._gateway.stop()
 
     def _collect_capabilities(self) -> None:
         """收集所有 hook/plugin 的 capabilities 寫入 GatewayCore"""
@@ -415,7 +436,7 @@ class Waifu:
                 {"role": "assistant", "content": placeholder},
             )
             raise  # 繼續往上傳遞，讓 adapter 正常收尾
-        except Exception as exc:
+        except Exception:
             logger.exception(
                 "AgentRunner failed for request {}, writing fallback message",
                 request.request_id,

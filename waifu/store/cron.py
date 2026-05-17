@@ -9,8 +9,27 @@ from waifu.store.models import CronJob, CronRun
 class CronStore:
     """All cron job operations. Inject into CLI and scheduler."""
 
-    def create(self, name: str, type: str, schedule: str, command: str) -> CronJob:
-        return CronJob.create(name=name, type=type, schedule=schedule, command=command)
+    def create(
+        self,
+        name: str,
+        type: str,
+        schedule: str,
+        command: str,
+        kind: str = "shell",
+        target_conversation_id: Optional[str] = None,
+        sender_user_id: Optional[str] = None,
+        sender_display_name: Optional[str] = None,
+    ) -> CronJob:
+        return CronJob.create(
+            name=name,
+            type=type,
+            schedule=schedule,
+            command=command,
+            kind=kind,
+            target_conversation_id=target_conversation_id,
+            sender_user_id=sender_user_id,
+            sender_display_name=sender_display_name,
+        )
 
     def get(self, id: str) -> Optional[CronJob]:
         return CronJob.get_or_none(CronJob.id == id)

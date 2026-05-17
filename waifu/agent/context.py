@@ -13,6 +13,13 @@ if TYPE_CHECKING:
 from waifu.logger import logger
 
 
+async def _compact_messages(messages: List[AppMessage]) -> List[AppMessage]:
+    """
+    TODO: 還沒有處理
+    """
+    return messages
+
+
 def _estimate_tokens(messages: List[AppMessage]) -> int:
     """粗估 token 數（chars / 4），不呼叫 API。"""
     total = 0
@@ -128,20 +135,16 @@ class ContextBuilder:
 
             max_msgs = config.max_history_messages
             msgs = messages[-max_msgs:] if len(messages) > max_msgs else list(messages)
-
-            # 粗估 chars/4
+            # TODO: 需處理真實TOKRN計算
             if config.context_token_budget is not None:
                 threshold = int(config.context_token_budget * config.compact_threshold)
-                before = _estimate_tokens(msgs)
-                while len(msgs) >= 2 and _estimate_tokens(msgs) > threshold:
-                    msgs = msgs[2:]
-                after = _estimate_tokens(msgs)
-                if after < before:
+                if _estimate_tokens(msgs) > threshold:
+                    before_len = len(msgs)
+                    msgs = await _compact_messages(msgs)
                     logger.warning(
-                        "Context budget exceeded ({} tokens > {} threshold): trimmed from {} to {} messages",
-                        before,
+                        "Context budget exceeded (threshold={}): compacted from {} to {} messages",
                         threshold,
-                        len(msgs) + (before - after),
+                        before_len,
                         len(msgs),
                     )
 
