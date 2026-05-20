@@ -27,7 +27,6 @@ from waifu.store.conversation import ConversationStore
 from waifu.store.repositories import (
     AppConfigRepository,
     CharacterRepository,
-    MCPRepository,
     PluginRepository,
     RelationshipRepository,
     TokenAnalyticsRepository,
@@ -196,7 +195,6 @@ class Waifu:
         # Repositories
         self._cron_store = CronStore()
         self._plugin_repo = PluginRepository()
-        self._mcp_repo = MCPRepository()
         self._config_repo = AppConfigRepository()
         self._character_repo = CharacterRepository()
         self._relationship_repo = RelationshipRepository()
@@ -206,7 +204,7 @@ class Waifu:
 
         # Services
         self._plugin_service = PluginService(self._plugin_repo, self._plugin_manager, self._plugin_loader)
-        self._mcp_service = MCPService(self._mcp_repo, self._mcp_manager)
+        self._mcp_service = MCPService(self._mcp_manager, self._paths.mcp_config_file)
         self._skill_service = SkillService(self._skill_registry, self._paths.skills_dir)
         self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
         self._character_service = CharacterService(self._character_repo, self._relationship_repo)
@@ -299,19 +297,7 @@ class Waifu:
         for key, value in self._config_service.get_all().items():
             self._config_service.set(key, value)
 
-        for row in self._mcp_repo.list_enabled():
-            try:
-                row_command = cast(Optional[str], row.command)
-                cmd = json.loads(row_command) if row_command else None
-                await self._mcp_service.add(
-                    cast(str, row.name),
-                    cast(str, row.type),
-                    cmd,
-                    cast(Optional[str], row.url),
-                    {},
-                )
-            except Exception:
-                logger.exception("Failed to restore MCP server: {}", row.name)
+        await self._mcp_service.load_all()
 
         for row in self._plugin_repo.list_enabled():
             try:

@@ -1,10 +1,10 @@
 import asyncio
 import json
+import os
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from waifu_types import BaseMCPAdapter
-
 from waifu import __version__
+from waifu_types import BaseMCPAdapter
 
 if TYPE_CHECKING:
     from hai.tool.toolcalling import Tool
@@ -21,18 +21,21 @@ class StdioMCPAdapter(BaseMCPAdapter):
         StdioMCPAdapter(["python", "-m", "mcp_server_sqlite", "--db", "data.db"])
     """
 
-    def __init__(self, cmd: List[str]) -> None:
+    def __init__(self, cmd: List[str], env: Optional[Dict[str, str]] = None) -> None:
         self._cmd = cmd
+        self._env = env
         self._proc: Optional[asyncio.subprocess.Process] = None
         self._tools_cache: "List[Tool]" = []
         self._req_id = 0
 
     async def connect(self) -> None:
+        merged_env = {**os.environ, **self._env} if self._env else None
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=merged_env,
         )
         await self._initialize()
         self._tools_cache = await self._fetch_tools()

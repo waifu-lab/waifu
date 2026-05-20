@@ -2,9 +2,9 @@ import json
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import httpx
-from waifu_types import BaseMCPAdapter
 
 from waifu import __version__
+from waifu_types import BaseMCPAdapter
 
 if TYPE_CHECKING:
     from hai.tool.toolcalling import Tool
@@ -18,16 +18,18 @@ class SSEMCPAdapter(BaseMCPAdapter):
 
     用法：
         SSEMCPAdapter("http://localhost:8080/sse")
+        SSEMCPAdapter("http://localhost:8080/sse", headers={"Authorization": "Bearer token"})
     """
 
-    def __init__(self, url: str) -> None:
+    def __init__(self, url: str, headers: Optional[Dict[str, str]] = None) -> None:
         self._url = url.rstrip("/")
+        self._headers = headers or {}
         self._tools_cache: "List[Tool]" = []
         self._client: Optional[httpx.AsyncClient] = None
         self._req_id = 0
 
     async def connect(self) -> None:
-        self._client = httpx.AsyncClient(timeout=30.0)
+        self._client = httpx.AsyncClient(timeout=30.0, headers=self._headers)
         await self._initialize()
         self._tools_cache = await self._fetch_tools()
         logger.info("SSEMCPAdapter connected: {} ({} tools)", self._url, len(self._tools_cache))

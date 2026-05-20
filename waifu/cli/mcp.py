@@ -1,7 +1,7 @@
 import json
 import shlex
 import sys
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 from rich.table import Table
 
@@ -43,23 +43,33 @@ def _help() -> None:
     console.print("[bold]waifu mcp[/bold] — manage MCP servers")
     console.print()
     console.print("  [cyan]mcp list[/cyan]                              List configured MCP servers")
-    console.print('  [cyan]mcp install[/cyan] [green]<name>[/green] [yellow]--stdio[/yellow] [green]"<cmd>"[/green]')
-    console.print("  [cyan]mcp install[/cyan] [green]<name>[/green] [yellow]--sse[/yellow] [green]<url>[/green]")
+    console.print('  [cyan]mcp install[/cyan] [green]<name> --stdio "<cmd>"[/green] [dim][--env K=V][/dim]')
+    console.print("  [cyan]mcp install[/cyan] [green]<name> --sse <url>[/green] [dim][--header K=V][/dim]")
     console.print("  [cyan]mcp uninstall[/cyan] [green]<name>[/green]                Remove an MCP server")
     console.print("  [cyan]mcp enable[/cyan] [green]<name>[/green]                   Enable a disabled server")
     console.print("  [cyan]mcp disable[/cyan] [green]<name>[/green]                  Disable a running server")
     console.print("  [cyan]mcp search[/cyan] [green]<query>[/green]                  (TODO) search MCP registry")
     console.print()
     console.print("[dim]If a waifu server is running locally, changes take effect immediately (hot-reload).[/dim]")
-    console.print("[dim]Otherwise they are written to DB/config and apply on next `waifu start`.[/dim]")
+    console.print("[dim]Otherwise they are written to mcp.json and apply on next `waifu start`.[/dim]")
     console.print()
 
 
-def _ensure_db() -> None:
-    from waifu.store import AppPaths, Database
+def _load_mcp_json() -> Dict[str, Any]:
+    from waifu.store import AppPaths
 
-    paths = AppPaths.resolve()
-    Database(paths.db_file).init()
+    path = AppPaths.resolve().mcp_config_file
+    if not path.is_file():
+        return {"servers": {}}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _save_mcp_json(data: Dict[str, Any]) -> None:
+    from waifu.store import AppPaths
+
+    path = AppPaths.resolve().mcp_config_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def _mode_tag() -> str:
@@ -76,22 +86,34 @@ def _list_online() -> Optional[List[Dict[str, Any]]]:
     return resp.json()
 
 
-def _list_offline() -> List[Dict[str, Any]]:
-    _ensure_db()
-    from waifu.store.repositories.mcp import MCPRepository
+def _entry_type(entry: Dict[str, Any]) -> str:
+    explicit = entry.get("type", "")
+    if explicit in ("http", "sse") or "url" in entry:
+        return "sse"
+    return "stdio"
 
+
+def _resolve_command(entry: Dict[str, Any]) -> List[str]:
+    cmd = entry.get("command")
+    if isinstance(cmd, str):
+        return [cmd] + list(entry.get("args", []))
+    return list(cmd) if cmd else []
+
+
+def _list_offline() -> List[Dict[str, Any]]:
+    data = _load_mcp_json()
     rows: List[Dict[str, Any]] = []
-    for r in MCPRepository().list_all():
-        type_ = cast(str, r.type)
-        if type_ == "stdio":
-            target: Any = json.loads(cast(str, r.command)) if r.command else []
+    for name, entry in data.get("servers", {}).items():
+        type_ = _entry_type(entry)
+        if type_ == "sse":
+            target: Any = entry.get("url", "")
         else:
-            target = cast(Optional[str], r.url) or ""
+            target = _resolve_command(entry)
         rows.append(
             {
-                "name": cast(str, r.name),
+                "name": name,
                 "type": type_,
-                "enabled": bool(r.enabled),
+                "enabled": entry.get("enabled", True),
                 "target": target,
             }
         )
@@ -129,7 +151,25 @@ def _cmd_list(_args: List[str]) -> None:
     console.print(table)
 
 
-def _parse_install_args(args: List[str]) -> tuple[str, str, Any]:
+def _parse_kv_flags(rest: List[str], flag: str) -> tuple[Dict[str, str], List[str]]:
+    result: Dict[str, str] = {}
+    remaining: List[str] = []
+    i = 0
+    while i < len(rest):
+        if rest[i] == f"--{flag}" and i + 1 < len(rest):
+            kv = rest[i + 1]
+            if "=" not in kv:
+                raise ValueError(f"--{flag} expects key=value, got: {kv!r}")
+            k, v = kv.split("=", 1)
+            result[k] = v
+            i += 2
+        else:
+            remaining.append(rest[i])
+            i += 1
+    return result, remaining
+
+
+def _parse_install_args(args: List[str]) -> tuple[str, str, Any, Dict[str, str], Dict[str, str]]:
     if not args:
         raise ValueError("missing <name>")
     name = args[0]
@@ -144,37 +184,14 @@ def _parse_install_args(args: List[str]) -> tuple[str, str, Any]:
         cmd = shlex.split(rest[1])
         if not cmd:
             raise ValueError("--stdio command is empty")
-        return name, "stdio", cmd
+        env, _ = _parse_kv_flags(rest[2:], "env")
+        return name, "stdio", cmd, {}, env
     if flag == "--sse":
         if len(rest) < 2:
             raise ValueError("--sse requires a URL")
-        return name, "sse", rest[1]
+        headers, _ = _parse_kv_flags(rest[2:], "header")
+        return name, "sse", rest[1], headers, {}
     raise ValueError(f"unknown transport flag: {flag}")
-
-
-def _sync_to_config(name: str, type_: str, target: Any) -> None:
-    from waifu.cli.config import _load_raw, _save_raw
-
-    data = _load_raw()
-    mcp = data.setdefault("mcp", {})
-    entry: Dict[str, Any] = {"type": type_}
-    if type_ == "stdio":
-        entry["cmd"] = target
-    else:
-        entry["url"] = target
-    mcp[name] = entry
-    _save_raw(data)
-
-
-def _drop_from_config(name: str) -> None:
-    from waifu.cli.config import _load_raw, _save_raw
-
-    data = _load_raw()
-    mcp = data.get("mcp")
-    if not isinstance(mcp, dict) or name not in mcp:
-        return
-    del mcp[name]
-    _save_raw(data)
 
 
 def _try_online(method: str, path: str, *, json_body: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -200,7 +217,7 @@ def _try_online(method: str, path: str, *, json_body: Optional[Dict[str, Any]] =
 
 def _cmd_install(args: List[str]) -> None:
     try:
-        name, type_, target = _parse_install_args(args)
+        name, type_, target, headers, env = _parse_install_args(args)
     except ValueError as e:
         err_console.print(f"[red]Usage error:[/red] {e}")
         _help()
@@ -209,28 +226,34 @@ def _cmd_install(args: List[str]) -> None:
     body: Dict[str, Any] = {"name": name, "type": type_}
     if type_ == "stdio":
         body["command"] = target
+        if env:
+            body["env"] = env
     else:
         body["url"] = target
+        if headers:
+            body["headers"] = headers
 
     result = _try_online("POST", "/mcp/", json_body=body)
     if result is not None:
-        _sync_to_config(name, type_, target)
         console.print(f"[green]Installed[/green] [bold]{name}[/bold] ({type_})  [{_mode_tag()}]")
         console.print("[dim]Server has connected the adapter — tools are live.[/dim]")
         return
 
-    _ensure_db()
-    from waifu.store.repositories.mcp import MCPRepository
-
-    repo = MCPRepository()
-    if repo.get(name) is not None:
+    data = _load_mcp_json()
+    servers = data.setdefault("servers", {})
+    if name in servers:
         err_console.print(f"[red]MCP server '{name}' already installed[/red]")
         sys.exit(1)
     if type_ == "stdio":
-        repo.create(name, "stdio", target, None, {})
+        entry: Dict[str, Any] = {"command": target}
+        if env:
+            entry["env"] = env
     else:
-        repo.create(name, "sse", None, target, {})
-    _sync_to_config(name, type_, target)
+        entry = {"url": target}
+        if headers:
+            entry["headers"] = headers
+    servers[name] = entry
+    _save_mcp_json(data)
     console.print(f"[green]Installed[/green] [bold]{name}[/bold] ({type_})  [{_mode_tag()}]")
     console.print("[dim]Server not running — adapter will connect on next `waifu start`.[/dim]")
 
@@ -243,19 +266,15 @@ def _cmd_uninstall(args: List[str]) -> None:
 
     result = _try_online("DELETE", f"/mcp/{name}")
     if result is not None:
-        _drop_from_config(name)
         console.print(f"[green]Uninstalled[/green] [bold]{name}[/bold]  [{_mode_tag()}]")
         return
 
-    _ensure_db()
-    from waifu.store.repositories.mcp import MCPRepository
-
-    repo = MCPRepository()
-    if repo.get(name) is None:
+    data = _load_mcp_json()
+    if name not in data.get("servers", {}):
         err_console.print(f"[red]MCP server '{name}' not found[/red]")
         sys.exit(1)
-    repo.delete(name)
-    _drop_from_config(name)
+    del data["servers"][name]
+    _save_mcp_json(data)
     console.print(f"[green]Uninstalled[/green] [bold]{name}[/bold]  [{_mode_tag()}]")
 
 
@@ -278,14 +297,16 @@ def _toggle(args: List[str], *, action: str, db_value: bool) -> None:
         console.print(f"[green]{action.capitalize()}d[/green] [bold]{name}[/bold]  [{_mode_tag()}]")
         return
 
-    _ensure_db()
-    from waifu.store.repositories.mcp import MCPRepository
-
-    repo = MCPRepository()
-    if repo.get(name) is None:
+    data = _load_mcp_json()
+    entry = data.get("servers", {}).get(name)
+    if entry is None:
         err_console.print(f"[red]MCP server '{name}' not found[/red]")
         sys.exit(1)
-    repo.set_enabled(name, db_value)
+    if db_value:
+        entry.pop("enabled", None)
+    else:
+        entry["enabled"] = False
+    _save_mcp_json(data)
     console.print(f"[green]{action.capitalize()}d[/green] [bold]{name}[/bold]  [{_mode_tag()}]")
     console.print("[dim]Applies on next `waifu start` (server not running).[/dim]")
 

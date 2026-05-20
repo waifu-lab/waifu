@@ -37,6 +37,10 @@ class AppPaths:
         return self.config_dir / "waifu.db"
 
     @property
+    def mcp_config_file(self) -> Path:
+        return self.data_dir / "mcp.json"
+
+    @property
     def conversations_dir(self) -> Path:
         return self.data_dir / "conversations"
 
