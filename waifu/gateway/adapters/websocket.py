@@ -30,11 +30,16 @@ class WebSocketAdapter(BaseGatewayAdapter):
 
     name = "websocket"
 
-    def __init__(self, voice_service: Optional["VoiceService"] = None) -> None:
+    def __init__(
+        self,
+        voice_service: Optional["VoiceService"] = None,
+        character_name: str = "Assistant",
+    ) -> None:
         self._core: Optional["GatewayCore"] = None
         self._voice: Optional["VoiceService"] = voice_service
         self._heartbeat: Optional["HeartbeatManager"] = None
         self._connections: Dict[str, "WebSocket"] = {}  # session_token → websocket
+        self._character_name = character_name
 
     def set_heartbeat_manager(self, manager: "HeartbeatManager") -> None:
         self._heartbeat = manager
@@ -80,7 +85,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     if self._heartbeat is not None:
                         event_name: str = data.get("name", "")
                         event_data: dict = data.get("data", {})
-                        push_fn = _make_ws_push_fn(websocket)
+                        push_fn = _make_ws_push_fn(websocket, self._character_name)
                         asyncio.create_task(
                             self._heartbeat.dispatch(event_name, event_data, session_token, session_token, push_fn)
                         )
@@ -151,11 +156,9 @@ class WebSocketAdapter(BaseGatewayAdapter):
             self._connections.pop(session_token, None)
 
 
-def _make_ws_push_fn(websocket: "WebSocket"):
-    """建立 heartbeat 推送函式，以 type: proactive 送出。"""
-
+def _make_ws_push_fn(websocket: "WebSocket", name: str = "Assistant"):
     async def push_fn(content: str) -> None:
-        await websocket.send_json({"type": "proactive", "content": content})
+        await websocket.send_json({"type": "event", "event": "dialogue", "data": {"name": name, "text": content}})
 
     return push_fn
 

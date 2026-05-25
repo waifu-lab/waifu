@@ -18,12 +18,12 @@ class HeartbeatEventConfig(BaseModel):
 
 _DEFAULT_EVENTS: List[HeartbeatEventConfig] = [
     HeartbeatEventConfig(
-        event_name="user_active",
+        event_name="active",
         kind="llm",
         prompt="使用者回到電腦前了，請自然地打個招呼。",
     ),
     HeartbeatEventConfig(
-        event_name="user_pet",
+        event_name="pet",
         kind="llm",
         prompt="使用者剛剛摸了你，請用可愛的方式回應這個互動。",
     ),
