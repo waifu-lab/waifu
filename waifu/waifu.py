@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional, cast
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
 from waifu.agent import AgentRunner, ContextBuilder
+from waifu.card import CardImporter, CardParser
 from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.cron import CronExecutor, CronScheduler
 from waifu.gateway import GatewayCore
@@ -215,6 +216,9 @@ class Waifu:
 
         self._heartbeat_manager = HeartbeatManager(dispatch_fn=self._dispatch)
 
+        self._card_parser = CardParser()
+        self._card_importer = CardImporter(soul_dir=self._paths.soul_dir, parser=self._card_parser)
+
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
         memory_store = None
@@ -362,6 +366,10 @@ class Waifu:
     @property
     def skill_service(self) -> SkillService:
         return self._skill_service
+
+    @property
+    def card_importer(self) -> CardImporter:
+        return self._card_importer
 
     @property
     def localmode(self) -> bool:
