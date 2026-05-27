@@ -72,6 +72,8 @@ class WaifuConfig(BaseModel):
     gateway: GatewayConfig = GatewayConfig()
     context: ContextConfig = ContextConfig()
     provider: ProviderConfig
+    utility_provider: Optional[ProviderConfig] = None
+
     voice: Optional[VoiceConfig] = None  # None = 語音功能停用
     node: Optional[WaifuNodeConfig] = None  # None = 停用 waifu-node
     character: Optional[str] = None  # character name

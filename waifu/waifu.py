@@ -5,7 +5,7 @@ import time
 from typing import Any, Dict, Optional, cast
 
 from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
-from waifu.agent import AgentRunner, ContextBuilder
+from waifu.agent import AgentRunner, ContextBuilder, UtilityAI
 from waifu.card import CardImporter, CardParser
 from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.cron import CronExecutor, CronScheduler
@@ -13,6 +13,7 @@ from waifu.gateway import GatewayCore
 from waifu.heartbeat import HeartbeatManager
 from waifu.hook import HookPipeline, HookRegistry
 from waifu.hook.builtin import EmotionHook, LoggingHook, MemoryHook, TTSHook
+from waifu.logger import logger
 from waifu.mcp.manager import MCPManager
 from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
@@ -68,9 +69,6 @@ def _to_waifu_message(m: Any) -> BaseMessage:
     return GenericMessage(**d)
 
 
-from waifu.logger import logger
-
-
 def _config_seed(config: "WaifuConfig") -> dict:
     """Flatten WaifuConfig into dotted key/value pairs for DB seeding."""
     entries: dict = {}
@@ -80,6 +78,9 @@ def _config_seed(config: "WaifuConfig") -> dict:
         entries[f"context.{field}"] = value
     for field, value in config.provider.model_dump().items():
         entries[f"provider.{field}"] = value
+    if config.utility_provider is not None:
+        for field, value in config.utility_provider.model_dump().items():
+            entries[f"utility_provider.{field}"] = value
     return entries
 
 
@@ -93,6 +94,18 @@ def _build_provider(config: "ProviderConfig") -> ProviderText:
         temperature=config.temperature,
         max_tokens=config.max_tokens,
         stream=config.stream,
+    )
+
+
+def _build_utility_provider(config: "ProviderConfig") -> ProviderText:
+    return ProviderText(
+        name="waifu-utility",
+        api_key=config.api_key,
+        base_url=config.base_url,
+        model=config.model,
+        temperature=0.3,
+        max_tokens=config.max_tokens,
+        stream=False,
     )
 
 
@@ -149,6 +162,9 @@ class Waifu:
             config.context.soul_content = self._character_manager.load_soul(config.character)
 
         self._provider = _build_provider(config.provider)
+
+        _util_cfg = config.utility_provider or config.provider
+        self._utility_ai = UtilityAI(_build_utility_provider(_util_cfg))
         self._voice_service: Optional[VoiceService] = _build_voice_service(config.voice)
 
         # Hook
@@ -492,7 +508,49 @@ class Waifu:
         ctx = await self._hook_pipeline.run_post(ctx)
 
         display_content = _EMOTION_TAG_RE.sub("", ctx.response or final_content).strip()
+
+        # title 仍等於 conversation_id 代表還未命名 → 背景生成標題並推送給前端
+        conv = self._conversation_store.get(request.conversation_id)
+        if conv is not None and str(conv.title) == request.conversation_id and final_content:
+            asyncio.create_task(
+                self._auto_title(
+                    request.conversation_id,
+                    request.content,
+                    final_content,
+                    reply_fn=request.reply_fn,
+                )
+            )
+
         return self._build_response(request, content=display_content, ctx=ctx)
+
+    async def _auto_title(
+        self,
+        conversation_id: str,
+        user_msg: str,
+        assistant_reply: str,
+        *,
+        reply_fn: Any,
+    ) -> None:
+        import inspect
+
+        title = await self._utility_ai.generate_title(user_msg, assistant_reply)
+        if not title:
+            return
+
+        self._conversation_store.update_title(conversation_id, title)
+        logger.info("Auto-titled conversation {} → '{}'", conversation_id[:8], title)
+
+        event = {
+            "event": "title_update",
+            "data": {"conversation_id": conversation_id, "title": title},
+        }
+        try:
+            if inspect.iscoroutinefunction(reply_fn):
+                await reply_fn(event=event)
+            else:
+                reply_fn(event=event)
+        except Exception:
+            logger.debug("title_update event could not be delivered (connection closed?)")
 
     @staticmethod
     def _build_response(request: IncomingRequest, content: str, ctx: HookContext) -> OutgoingResponse:

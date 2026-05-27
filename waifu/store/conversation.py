@@ -79,6 +79,11 @@ class ConversationStore:
     def count(self) -> int:
         return Conversation.select().count()
 
+    def update_title(self, id: str, title: str) -> bool:
+        """Update the title of a conversation. Returns True if the row existed."""
+        n = Conversation.update(title=title).where(Conversation.id == id).execute()
+        return n > 0
+
     def delete(self, id: str) -> bool:
         n = Conversation.delete().where(Conversation.id == id).execute()
         if n > 0 and self._attachments_dir is not None:
