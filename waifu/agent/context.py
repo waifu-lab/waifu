@@ -1,10 +1,9 @@
-import base64
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from shuvi.context import ContextManager
 from shuvi.types import AppMessage
-from waifu_types import Attachment, ConversationMode, HookContext, SystemPromptLayers, UserMessage
+from waifu_types import ConversationMode, HookContext, MessageParts, SystemPromptLayers
 
 if TYPE_CHECKING:
     from waifu.config import ContextConfig
@@ -31,60 +30,6 @@ def _estimate_tokens(messages: List[AppMessage]) -> int:
             text = c or ""
         total += len(text) // 4
     return total
-
-
-# FIXME: 好醜
-_SUPPORTED_FILE_TYPES = {
-    "application/pdf",
-    "text/plain",
-    "text/html",
-    "text/css",
-    "text/javascript",
-    "text/markdown",
-    "application/json",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  # docx
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  # xlsx
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",  # pptx
-    "application/msword",
-    "text/csv",
-    "text/xml",
-    "application/xml",
-}
-
-
-def _to_data_url(att: Attachment) -> str:
-    if att.url:
-        return att.url
-    encoded = base64.b64encode(att.data).decode("utf-8")
-    return f"data:{att.content_type};base64,{encoded}"
-
-
-def _build_user_message(content: str, attachments: List[Attachment]) -> UserMessage:
-    parts: List[Dict[str, Any]] = [{"type": "text", "text": content}]
-    for att in attachments:
-        if att.content_type.startswith("image/"):
-            parts.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": _to_data_url(att), "detail": "auto"},
-                }
-            )
-        elif att.content_type in _SUPPORTED_FILE_TYPES:
-            if not att.data and not att.url:
-                logger.warning("Attachment '{}' has no data or url, skipping", att.filename)
-                continue
-            parts.append(
-                {
-                    "type": "file",
-                    "file": {
-                        "filename": att.filename,
-                        "file_data": _to_data_url(att),
-                    },
-                }
-            )
-        else:
-            logger.warning("Unsupported attachment type '{}' ({}), skipping", att.content_type, att.filename)
-    return UserMessage(content=parts)
 
 
 class ContextBuilder:
@@ -156,6 +101,6 @@ class ContextBuilder:
         content = ctx.request.content
         if ctx.request.mode == ConversationMode.group:
             content = f"[{ctx.request.sender.display_name}]: {content}"
-        cm.append(_build_user_message(content, ctx.request.attachments))
+        cm.append(MessageParts(content=content, attachments=ctx.request.attachments).to_user_message())
 
         return cm

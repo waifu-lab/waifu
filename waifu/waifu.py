@@ -43,6 +43,7 @@ from waifu_types import (
     GenericMessage,
     HookContext,
     IncomingRequest,
+    MessageParts,
     OutgoingResponse,
     SystemMessage,
     ToolMessage,
@@ -391,7 +392,18 @@ class Waifu:
     def localmode(self) -> bool:
         return self._localmode
 
-    async def dispatch(self, request: IncomingRequest) -> OutgoingResponse:
+    async def dispatch(
+        self,
+        request: "IncomingRequest | MessageParts",
+        *,
+        conversation_id: Optional[str] = None,
+        reply_fn: Optional[Any] = None,
+    ) -> OutgoingResponse:
+        if isinstance(request, MessageParts):
+            request = request.to_request(
+                conversation_id=conversation_id,
+                reply_fn=reply_fn,
+            )
         return await self._dispatch(request)
 
     @property

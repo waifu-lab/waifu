@@ -1,6 +1,7 @@
 from .adapter import BaseGatewayAdapter
 from .hook import BaseHook, HookContext
 from .mcp import BaseMCPAdapter
+from .msg import MessageParts
 from .plugin import BasePlugin, PluginContext
 from .prompt import SystemPromptLayers
 from .services import ConversationService, SessionService, VoiceServiceProtocol
@@ -24,6 +25,7 @@ from .types import (
 )
 
 __all__ = [
+    "MessageParts",
     # message types
     "BaseMessage",
     "UserMessage",
