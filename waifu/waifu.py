@@ -186,7 +186,6 @@ class Waifu:
         # Plugin
         self._plugin_registry = PluginRegistry()
         self._node_manager = NodeManager(self._plugin_registry)
-        self._register_builtin_tools()
 
         self._skill_registry = SkillRegistry()
         for manifest in scan_skills(self._paths.skills_dir):
@@ -212,6 +211,7 @@ class Waifu:
 
         # Repositories
         self._cron_store = CronStore()
+        self._register_builtin_tools()
         self._plugin_repo = PluginRepository()
         self._config_repo = AppConfigRepository()
         self._character_repo = CharacterRepository()
@@ -264,10 +264,31 @@ class Waifu:
 
     def _register_builtin_tools(self) -> None:
         """將 waifu/tool/ 下的內建工具預先注冊到 PluginRegistry"""
-        from waifu.tool import read_tool, shell_tool, webfetch_tool, write_tool
+        from waifu.tool import (
+            file_edit_tool,
+            file_patch_tool,
+            file_search_tool,
+            make_cron_tool,
+            read_tool,
+            shell_tool,
+            webfetch_tool,
+            websearch_tool,
+            write_tool,
+        )
 
-        for t in (read_tool, write_tool, shell_tool, webfetch_tool):
+        for t in (
+            read_tool,
+            write_tool,
+            shell_tool,
+            webfetch_tool,
+            websearch_tool,
+            file_search_tool,
+            file_edit_tool,
+            file_patch_tool,
+        ):
             self._plugin_registry.add_tool(t)
+
+        self._plugin_registry.add_tool(make_cron_tool(self._cron_store))
 
     def mount(self, adapter: BaseGatewayAdapter) -> "Waifu":
         """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP）"""
@@ -451,6 +472,8 @@ class Waifu:
         system_prompt = self._context_builder.build_system_prompt(ctx)
         context_manager = self._context_builder.build_context_manager(ctx)
         tools = self._plugin_registry.get_all_tools()
+        # Capture after hooks (MemoryHook.pre may have replaced ctx.messages with file-loaded history)
+        history_len = len(ctx.messages)
 
         agent_result = await self._run_agent(ctx, system_prompt, tools, context_manager)
         if isinstance(agent_result, OutgoingResponse):
@@ -465,8 +488,10 @@ class Waifu:
         ctx.response = final_content
         ctx.trace = agent_result.trace
 
-        history_len = len(session.history)
-        new_shuvi_msgs = agent_result.messages[history_len + 1 :]
+        # agent_result.messages = [history..., user_msg, new_msgs...]
+        # Start from history_len to include user_msg in session.history.
+        # _persist_new_messages already skips role=="user" so no double-save.
+        new_shuvi_msgs = agent_result.messages[history_len:]
         new_waifu_msgs = [_to_waifu_message(m) for m in new_shuvi_msgs]
 
         ctx.new_messages = new_waifu_msgs
