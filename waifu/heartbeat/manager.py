@@ -65,7 +65,7 @@ class HeartbeatManager:
         data: dict,
         session_token: str,
         conversation_id: str,
-        push_fn: Callable[[str], Coroutine],
+        reply_fn: Callable,
     ) -> None:
         handler = self._handlers.get(event_name)
         if handler is None:
@@ -73,6 +73,6 @@ class HeartbeatManager:
             return
 
         try:
-            await handler.handle(event_name, data, session_token, conversation_id, push_fn)
+            await handler.handle(event_name, data, session_token, conversation_id, reply_fn)
         except Exception:
             logger.exception("HeartbeatManager: handler for {!r} raised an error", event_name)

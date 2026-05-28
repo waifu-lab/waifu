@@ -231,7 +231,11 @@ class Waifu:
         self._cron_executor = CronExecutor(dispatch_fn=self._dispatch)
         self._cron_scheduler = CronScheduler(store=self._cron_store, executor=self._cron_executor)
 
-        self._heartbeat_manager = HeartbeatManager(dispatch_fn=self._dispatch)
+        import functools
+
+        self._heartbeat_manager = HeartbeatManager(
+            dispatch_fn=functools.partial(self._dispatch, skip_auto_title=True)
+        )
 
         self._card_parser = CardParser()
         self._card_importer = CardImporter(soul_dir=self._paths.soul_dir, parser=self._card_parser)
@@ -410,7 +414,7 @@ class Waifu:
     def started_at(self) -> float:
         return self._started_at
 
-    async def _dispatch(self, request: IncomingRequest) -> OutgoingResponse:
+    async def _dispatch(self, request: IncomingRequest, *, skip_auto_title: bool = False) -> OutgoingResponse:
         """
         完整請求生命週期：
           Session → HookPipeline.pre → ContextBuilder → AgentRunner
@@ -419,11 +423,14 @@ class Waifu:
         session = self._gateway.session_manager.get_or_create(request.conversation_id)
 
         # Ensure the conversation row exists in DB
-        if self._conversation_store.get(request.conversation_id) is None:
+        is_new_conversation = self._conversation_store.get(request.conversation_id) is None
+        if is_new_conversation:
             self._conversation_store.create_with_id(
                 request.conversation_id,
                 title=request.conversation_id,
             )
+            if request.metadata:
+                session.metadata.update(request.metadata)
 
         self._conversation_store.add_llm_message(
             request.conversation_id,
@@ -445,77 +452,28 @@ class Waifu:
         context_manager = self._context_builder.build_context_manager(ctx)
         tools = self._plugin_registry.get_all_tools()
 
-        try:
-            result = await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
-        except asyncio.CancelledError:
-            logger.warning(
-                "Request {} cancelled (client disconnected), writing interrupt placeholder",
-                request.request_id,
-            )
-            placeholder = "〔已中斷〕"
-            self._conversation_store.add_llm_message(
-                request.conversation_id,
-                {"role": "assistant", "content": placeholder},
-            )
-            raise  # 繼續往上傳遞，讓 adapter 正常收尾
-        except Exception:
-            logger.exception(
-                "AgentRunner failed for request {}, writing fallback message",
-                request.request_id,
-            )
-            # 保持 transcript 閉環
-            fallback_content = "系統發生錯誤，請稍後再試"
-            self._conversation_store.add_llm_message(
-                request.conversation_id,
-                {"role": "assistant", "content": fallback_content},
-            )
-            ctx.response = fallback_content
-            return self._build_response(request, content=fallback_content, ctx=ctx)
+        agent_result = await self._run_agent(ctx, system_prompt, tools, context_manager)
+        if isinstance(agent_result, OutgoingResponse):
+            return agent_result
 
         final_content = ""
-        for msg in reversed(result.messages):
+        for msg in reversed(agent_result.messages):
             if msg.role == "assistant" and isinstance(msg.content, str) and msg.content:
                 final_content = msg.content
                 break
 
         ctx.response = final_content
-        ctx.trace = result.trace
+        ctx.trace = agent_result.trace
 
-        # result.messages = windowed_history + user_msg + new_msgs
-        # new_msgs starts after history_len (windowed) + 1 (user msg)
         history_len = len(session.history)
-        new_shuvi_msgs = result.messages[history_len + 1 :]
+        new_shuvi_msgs = agent_result.messages[history_len + 1 :]
         new_waifu_msgs = [_to_waifu_message(m) for m in new_shuvi_msgs]
 
         ctx.new_messages = new_waifu_msgs
         ctx = await self._hook_pipeline.run_mid(ctx)
 
         session.add_messages(ctx.new_messages)
-
-        # Token usage from this run — only attached to the final assistant message
-        usage = result.trace.token_usage
-        assistant_count = sum(1 for m in ctx.new_messages if m.role == "assistant")
-        for i, msg in enumerate(ctx.new_messages):
-            if msg.role != "user":
-                # 只把 token 數掛在最後一條 assistant 訊息上（避免重複累計）
-                is_last_assistant = msg.role == "assistant" and (
-                    assistant_count == 0
-                    or i
-                    == next(
-                        (
-                            j
-                            for j in range(len(ctx.new_messages) - 1, -1, -1)
-                            if ctx.new_messages[j].role == "assistant"
-                        ),
-                        -1,
-                    )
-                )
-                self._conversation_store.add_llm_message(
-                    request.conversation_id,
-                    msg.model_dump(exclude_none=True),
-                    input_tokens=usage.input if is_last_assistant else None,
-                    output_tokens=usage.output if is_last_assistant else None,
-                )
+        self._persist_new_messages(request.conversation_id, ctx.new_messages, agent_result.trace.token_usage)
 
         ctx = await self._hook_pipeline.run_post(ctx)
 
@@ -523,7 +481,7 @@ class Waifu:
 
         # title 仍等於 conversation_id 代表還未命名 → 背景生成標題並推送給前端
         conv = self._conversation_store.get(request.conversation_id)
-        if conv is not None and str(conv.title) == request.conversation_id and final_content:
+        if conv is not None and str(conv.title) == request.conversation_id and final_content and not skip_auto_title:
             asyncio.create_task(
                 self._auto_title(
                     request.conversation_id,
@@ -534,6 +492,44 @@ class Waifu:
             )
 
         return self._build_response(request, content=display_content, ctx=ctx)
+
+    async def _run_agent(self, ctx: HookContext, system_prompt: str, tools: Any, context_manager: Any) -> Any:
+        request = ctx.request
+        try:
+            return await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
+        except asyncio.CancelledError:
+            logger.warning(
+                "Request {} cancelled (client disconnected), writing interrupt placeholder",
+                request.request_id,
+            )
+            self._conversation_store.add_llm_message(
+                request.conversation_id,
+                {"role": "assistant", "content": "〔已中斷〕"},
+            )
+            raise
+        except Exception:
+            logger.exception("AgentRunner failed for request {}, writing fallback message", request.request_id)
+            fallback = "系統發生錯誤，請稍後再試"
+            self._conversation_store.add_llm_message(
+                request.conversation_id,
+                {"role": "assistant", "content": fallback},
+            )
+            ctx.response = fallback
+            return self._build_response(request, content=fallback, ctx=ctx)
+
+    def _persist_new_messages(self, conversation_id: str, new_messages: list, usage: Any) -> None:
+        assistant_indices = [i for i, m in enumerate(new_messages) if m.role == "assistant"]
+        last_assistant_idx = assistant_indices[-1] if assistant_indices else -1
+        for i, msg in enumerate(new_messages):
+            if msg.role == "user":
+                continue
+            is_last_assistant = i == last_assistant_idx
+            self._conversation_store.add_llm_message(
+                conversation_id,
+                msg.model_dump(exclude_none=True),
+                input_tokens=usage.input if is_last_assistant else None,
+                output_tokens=usage.output if is_last_assistant else None,
+            )
 
     async def _auto_title(
         self,

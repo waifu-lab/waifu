@@ -15,7 +15,7 @@ class HeartbeatHandler(ABC):
         data: dict,
         session_token: str,
         conversation_id: str,
-        push_fn: Callable[[str], Coroutine],
+        reply_fn: Callable,
     ) -> None: ...
 
 
@@ -31,15 +31,15 @@ class GreetingPoolHandler(HeartbeatHandler):
         data: dict,
         session_token: str,
         conversation_id: str,
-        push_fn: Callable[[str], Coroutine],
+        reply_fn: Callable,
     ) -> None:
         msg = random.choice(self._pool)
-        await push_fn(msg)
+        await reply_fn(msg)
         logger.debug("Heartbeat [{}] → greeting pool: {!r}", event_name, msg)
 
 
 class LLMHandler(HeartbeatHandler):
-    """呼叫 LLM 生成個性化回應，結果寫進主對話並推送給用戶。"""
+    """呼叫 LLM 生成個性化回應，結果寫進主對話並推送給用戶（含 TTS）。"""
 
     def __init__(
         self,
@@ -55,8 +55,9 @@ class LLMHandler(HeartbeatHandler):
         data: dict,
         session_token: str,
         _conversation_id: str,
-        push_fn: Callable[[str], Coroutine],
+        reply_fn: Callable,
     ) -> None:
+        live2d_expressions: list = data.get("_live2d_expressions", [])
         request = IncomingRequest(
             request_id=str(uuid.uuid4()),
             conversation_id=f"heartbeat:{uuid.uuid4()}",
@@ -64,13 +65,11 @@ class LLMHandler(HeartbeatHandler):
             sender=Sender(user_id=f"ws:{session_token}", display_name="User"),
             source="heartbeat",
             content=self._prompt,
-            reply_fn=_noop,
+            live2d=True,
+            metadata={"live2d_expressions": live2d_expressions} if live2d_expressions else {},
+            reply_fn=reply_fn,
         )
         logger.debug("Heartbeat [{}] → LLM dispatch conv={}", event_name, request.conversation_id)
         response = await self._dispatch(request)
         if response and response.content:
-            await push_fn(response.content)
-
-
-async def _noop(*args, **kwargs) -> None:
-    pass
+            await reply_fn(response.content)
