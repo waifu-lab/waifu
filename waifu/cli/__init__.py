@@ -10,11 +10,10 @@ _COMMANDS = [
     ("init", None, "First-run setup (config + DB)"),
     ("start", None, "Start the waifu server"),
     ("run", None, "Run an AI completion via full chat pipeline"),
-    ("tui", None, "Launch interactive TUI"),
     ("version", None, "Show version"),
     ("config", ["get", "set", "list"], "Read or update settings"),
     ("conversations", None, "List recent conversations"),
-    ("conversation", ["create", "delete", "search", "compact", "messages", "switch"], "Manage conversations"),
+    ("conversation", ["create", "delete", "search", "compact", "messages"], "Manage conversations"),
     ("skill", ["list", "search", "find", "install", "update", "uninstall"], "Manage skills"),
     ("mcp", ["list", "install", "uninstall", "search", "find"], "Manage MCP servers"),
     ("cron", ["list", "add", "remove", "run", "enable", "disable", "history"], "Manage cron jobs"),
@@ -65,11 +64,6 @@ def main() -> None:
         from waifu.cli.run import cmd_run
 
         cmd_run(rest)
-
-    elif cmd == "tui":
-        from waifu.cli.tui import cmd_tui
-
-        cmd_tui(rest)
 
     elif cmd == "version":
         from waifu.cli.version import cmd_version

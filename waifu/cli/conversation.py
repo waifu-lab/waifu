@@ -38,7 +38,6 @@ def cmd_conversation(cmd: str, args: List[str]) -> None:
         "search": _cmd_search,
         "compact": _cmd_compact,
         "messages": _cmd_messages,
-        "switch": _cmd_switch,
         "export": _cmd_export,
     }
 
@@ -61,7 +60,6 @@ def _help() -> None:
     console.print("  [cyan]conversation compact[/cyan] [green]<id>[/green]          Compact conversation context")
     console.print("  [cyan]conversation messages[/cyan] [green]<id> [limit][/green]  Show messages")
     console.print("  [cyan]conversation export[/cyan] [green]<id> [path][/green]     Export conversation to markdown")
-    console.print("  [cyan]conversation switch[/cyan] [green]<id>[/green]            Switch active conversation in TUI")
     console.print()
 
 
@@ -171,7 +169,9 @@ def _cmd_messages(args: List[str]) -> None:
     for m in msgs:
         role = cast(str, m.role)
         role_color = {"user": "cyan", "assistant": "green", "tool": "yellow"}.get(role, "white")
-        console.print(f"[bold {role_color}]{role}[/bold {role_color}]  [dim]{str(cast(datetime, m.created_at))[:16]}[/dim]")
+        console.print(
+            f"[bold {role_color}]{role}[/bold {role_color}]  [dim]{str(cast(datetime, m.created_at))[:16]}[/dim]"
+        )
         console.print(_render_parts(cast(str, m.content)))
         console.print()
 
@@ -203,16 +203,3 @@ def _cmd_export(args: List[str]) -> None:
         dest = paths.conversations_dir / _safe_filename(cast(str, conv.title), cast(str, conv.id))
     out = store.export_markdown(cast(str, conv.id), dest)
     console.print(f"[green][OK][/green] Exported → [dim]{out}[/dim]")
-
-
-def _cmd_switch(args: List[str]) -> None:
-    if not args:
-        err_console.print("[red]Usage:[/red] waifu conversation switch <id>")
-        sys.exit(1)
-    # Write active conversation id to config so TUI can pick it up
-    from waifu.cli.config import _load_raw, _save_raw
-
-    data = _load_raw()
-    data.setdefault("tui", {})["active_conversation"] = args[0]
-    _save_raw(data)
-    console.print(f"[green][OK][/green] Active conversation set to [dim]{args[0]}[/dim]")

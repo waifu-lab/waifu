@@ -118,7 +118,6 @@ def cmd_init(args: List[str]) -> None:
     console.print()
     console.print("  Start server  [bold]waifu start[/bold]")
     console.print('  Chat (CLI)    [bold]waifu run "hello"[/bold]')
-    console.print("  Chat (TUI)    [bold]waifu tui[/bold]")
     console.print()
 
 
