@@ -16,6 +16,9 @@ class CharacterRepository:
     def get(self, id: str) -> Optional[Character]:
         return Character.get_or_none(Character.id == id)
 
+    def get_by_name(self, name: str) -> Optional[Character]:
+        return Character.get_or_none(Character.name == name)
+
     def get_active(self) -> Optional[Character]:
         return Character.get_or_none(Character.active == True)  # noqa: E712
 

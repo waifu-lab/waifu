@@ -16,6 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "fastapi (>=0.135.1,<0.136.0)",
+    "python-multipart>=0.0.30",
     "waifu_types",
     "textual>=0.89.1",
     "peewee>=3.17",

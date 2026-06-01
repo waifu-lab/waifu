@@ -44,6 +44,7 @@ async def _lifespan(app: FastAPI):
         skill_service=waifu.skill_service,
         config_service=waifu.config_service,
         character_service=waifu.character_service,
+        cards_dir=waifu.paths.cards_dir,
         conversation_store=waifu.conversation_store,
         attachments_dir=waifu.paths.attachments_dir,
         plugin_registry=waifu.plugin_registry,

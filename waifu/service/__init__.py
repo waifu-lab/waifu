@@ -1,4 +1,4 @@
-from .character import CharacterService
+from .character import CardImportResult, CharacterService
 from .config import AppConfigService
 from .mcp import MCPService
 from .plugin import PluginService
@@ -8,4 +8,5 @@ __all__ = [
     "MCPService",
     "AppConfigService",
     "CharacterService",
+    "CardImportResult",
 ]

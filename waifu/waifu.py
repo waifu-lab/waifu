@@ -148,6 +148,7 @@ class Waifu:
     def __init__(
         self, config: WaifuConfig, paths: Optional[AppPaths] = None, localmode: Optional[bool] = False
     ) -> None:
+        self._config = config
         self._localmode: bool = bool(localmode)
         self._paths = paths or AppPaths.resolve()
         self._started_at: float = 0.0
@@ -220,12 +221,20 @@ class Waifu:
         # Seed initial config into DB (only if keys don't already exist)
         self._config_repo.seed_if_absent(_config_seed(config))
 
+        self._card_parser = CardParser()
+        self._card_importer = CardImporter(cards_dir=self._paths.cards_dir, parser=self._card_parser)
+
         # Services
         self._plugin_service = PluginService(self._plugin_repo, self._plugin_manager, self._plugin_loader)
         self._mcp_service = MCPService(self._mcp_manager, self._paths.mcp_config_file)
         self._skill_service = SkillService(self._skill_registry, self._paths.skills_dir)
         self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
-        self._character_service = CharacterService(self._character_repo, self._relationship_repo)
+        self._character_service = CharacterService(
+            self._character_repo,
+            self._relationship_repo,
+            manager=self._character_manager,
+            card_importer=self._card_importer,
+        )
         self._token_analytics = TokenAnalyticsRepository()
 
         self._cron_executor = CronExecutor(dispatch_fn=self._dispatch)
@@ -236,9 +245,6 @@ class Waifu:
         self._heartbeat_manager = HeartbeatManager(
             dispatch_fn=functools.partial(self._dispatch, skip_auto_title=True)
         )
-
-        self._card_parser = CardParser()
-        self._card_importer = CardImporter(soul_dir=self._paths.soul_dir, parser=self._card_parser)
 
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
@@ -320,6 +326,7 @@ class Waifu:
         """啟動所有已掛載的 Adapter，並從 DB 恢復持久化設定"""
         self._started_at = time.time()
         self._collect_capabilities()
+        self._import_cards_on_startup()
         await self._restore_from_db()
         await self._cron_scheduler.start()
         if not self._localmode:
@@ -336,6 +343,19 @@ class Waifu:
             caps = getattr(hook, "capabilities", None)
             if isinstance(caps, dict):
                 self._gateway.capabilities.update(caps)
+
+    def _import_cards_on_startup(self) -> None:
+        results, errors = self._character_service.import_all_cards(overwrite=False)
+        imported = [r for r in results if r.status != "skipped"]
+        skipped = [r for r in results if r.status == "skipped"]
+        if imported:
+            logger.info("Imported {} character card(s) from {}", len(imported), self._paths.cards_dir)
+        if skipped:
+            logger.info("Skipped {} existing character card(s) from {}", len(skipped), self._paths.cards_dir)
+        if self._config.character:
+            self._config.context.soul_content = self._character_manager.load_soul(self._config.character)
+        for path, exc in errors:
+            logger.warning("Failed to import card {}: {}", path, exc)
 
     async def _restore_from_db(self) -> None:
         """從 DB 恢復所有持久化設定到 runtime"""

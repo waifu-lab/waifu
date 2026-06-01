@@ -12,7 +12,7 @@ class AppPaths:
     macOS       : ~/Library/Application Support/waifu/
     Linux       : $XDG_DATA_HOME/waifu/  (fallback: ~/.local/share/waifu/)
 
-    Data dir (conversations/, soul/, mcp/, skills/):
+    Data dir (conversations/, cards/, mcp/, skills/):
     Windows     : %USERPROFILE%\\Documents\\waifu\\
     macOS/Linux : $XDG_CONFIG_HOME/waifu/  (fallback: ~/.config/waifu/)
 
@@ -53,8 +53,8 @@ class AppPaths:
         return self.data_dir / "mcp"
 
     @property
-    def soul_dir(self) -> Path:
-        return self.data_dir / "soul"
+    def cards_dir(self) -> Path:
+        return self.data_dir / "cards"
 
     @property
     def characters_dir(self) -> Path:
@@ -78,7 +78,7 @@ class AppPaths:
         self.conversations_dir.mkdir(parents=True, exist_ok=True)
         self.skills_dir.mkdir(parents=True, exist_ok=True)
         self.mcp_dir.mkdir(parents=True, exist_ok=True)
-        self.soul_dir.mkdir(parents=True, exist_ok=True)
+        self.cards_dir.mkdir(parents=True, exist_ok=True)
         self.characters_dir.mkdir(parents=True, exist_ok=True)
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.plugins_dir.mkdir(parents=True, exist_ok=True)

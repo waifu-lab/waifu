@@ -6,18 +6,18 @@ from waifu.card.parser import SUPPORTED_SUFFIXES, CardError, CardParser, Normali
 
 
 class CardImporter:
-    def __init__(self, soul_dir: Path, parser: CardParser) -> None:
-        self._soul_dir = soul_dir
+    def __init__(self, cards_dir: Path, parser: CardParser) -> None:
+        self._cards_dir = cards_dir
         self._parser = parser
 
     @property
-    def soul_dir(self) -> Path:
-        return self._soul_dir
+    def cards_dir(self) -> Path:
+        return self._cards_dir
 
     def scan(self) -> list[Path]:
-        if not self._soul_dir.exists():
+        if not self._cards_dir.exists():
             return []
-        return sorted(p for p in self._soul_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES)
+        return sorted(p for p in self._cards_dir.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES)
 
     def load(self, path: Path) -> NormalizedCard:
         return self._parser.load(path)

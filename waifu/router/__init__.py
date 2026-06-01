@@ -31,6 +31,7 @@ def include_routers(
     skill_service: "SkillService | None" = None,
     config_service: "AppConfigService | None" = None,
     character_service: "CharacterService | None" = None,
+    cards_dir: "Path | None" = None,
     conversation_store: "ConversationStore | None" = None,
     attachments_dir: "Path | None" = None,
     plugin_registry: "PluginRegistry | None" = None,
@@ -79,7 +80,7 @@ def include_routers(
     if character_service is not None:
         from .character import make_character_router
 
-        app.include_router(make_character_router(character_service))
+        app.include_router(make_character_router(character_service, cards_dir=cards_dir))
 
     if conversation_store is not None:
         from .conversation import make_conversation_router

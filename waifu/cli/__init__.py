@@ -12,6 +12,7 @@ _COMMANDS = [
     ("run", None, "Run an AI completion via full chat pipeline"),
     ("version", None, "Show version"),
     ("config", ["get", "set", "list"], "Read or update settings"),
+    ("character", ["import-card", "import-cards"], "Import character cards"),
     ("conversations", None, "List recent conversations"),
     ("conversation", ["create", "delete", "search", "compact", "messages"], "Manage conversations"),
     ("skill", ["list", "search", "find", "install", "update", "uninstall"], "Manage skills"),
@@ -74,6 +75,11 @@ def main() -> None:
         from waifu.cli.config import cmd_config
 
         cmd_config(rest)
+
+    elif cmd == "character":
+        from waifu.cli.character import cmd_character
+
+        cmd_character(rest)
 
     elif cmd in ("conversations", "conversation"):
         from waifu.cli.conversation import cmd_conversation
