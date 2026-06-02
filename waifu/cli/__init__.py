@@ -9,7 +9,6 @@ from waifu.cli._console import console, err_console
 _COMMANDS = [
     ("init", None, "First-run setup (config + DB)"),
     ("start", None, "Start the waifu server"),
-    ("run", None, "Run an AI completion via full chat pipeline"),
     ("version", None, "Show version"),
     ("config", ["get", "set", "list"], "Read or update settings"),
     ("character", ["import-card", "import-cards"], "Import character cards"),
@@ -60,11 +59,6 @@ def main() -> None:
         from waifu.cli.start import cmd_start
 
         cmd_start(rest)
-
-    elif cmd == "run":
-        from waifu.cli.run import cmd_run
-
-        cmd_run(rest)
 
     elif cmd == "version":
         from waifu.cli.version import cmd_version

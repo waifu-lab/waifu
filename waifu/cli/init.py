@@ -71,13 +71,12 @@ def _selected_input(prompt: str, options: list[str], default: int = 1) -> str:
     def _render():
         for i, opt in enumerate(options):
             if i == selected:
-                sys.stdout.write(f"\x1b[2K> {i+1}. {opt}\n")
+                sys.stdout.write(f"\x1b[2K> {i + 1}. {opt}\n")
             else:
-                sys.stdout.write(f"\x1b[2K  {i+1}. {opt}\n")
+                sys.stdout.write(f"\x1b[2K  {i + 1}. {opt}\n")
         sys.stdout.flush()
 
     try:
-        # Initial render
         _render()
 
         if sys.platform == "win32":
@@ -134,7 +133,6 @@ def _selected_input(prompt: str, options: list[str], default: int = 1) -> str:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
     except Exception:
-        # Fallback to simple prompt if low-level input fails
         console.print()
         for index, option in enumerate(options, start=1):
             console.print(f"  {index}. {option}")
@@ -148,7 +146,7 @@ def _selected_input(prompt: str, options: list[str], default: int = 1) -> str:
         err_console.print(f"[red]Invalid selection.[/red]")
         raise
 
-    console.print()  # move to next line after selection
+    console.print()
     return options[selected]
 
 
@@ -209,7 +207,6 @@ def cmd_init(args: List[str]) -> None:
     console.print("[green][OK][/green] Setup complete.")
     console.print()
     console.print("  Start server  [bold]waifu start[/bold]")
-    console.print('  Chat (CLI)    [bold]waifu run "hello"[/bold]')
     console.print()
 
 

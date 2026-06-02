@@ -86,11 +86,10 @@ def _load_config(path: Union[str, Path]):
     else:
         print(f"Unsupported config format: {suffix}", file=sys.stderr)
         sys.exit(1)
-    
+
     if "base_url" not in data["provider"]:
         data["provider"]["base_url"] = base_url_defaults.get(data["provider"]["provider"])
 
-    print(data)
     return WaifuConfig(**data)
 
 

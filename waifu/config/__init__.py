@@ -22,11 +22,10 @@ class ContextConfig(BaseModel):
 class ProviderConfig(BaseModel):
     provider: str
     api_key: str
-    base_url: Optional[str] = None # expect "custom" provider
+    base_url: Optional[str] = None  # expect "custom" provider
     model: str
     temperature: float = 0.7
     max_tokens: Optional[int] = None
-    stream: bool = True
 
 
 class STTConfig(BaseModel):

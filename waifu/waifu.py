@@ -4,7 +4,7 @@ import re
 import time
 from typing import Any, Dict, Optional, cast
 
-from hai.providers.providers import ProviderSTT, ProviderText, ProviderTTS
+from hai.providers import ProviderSTT, ProviderText, ProviderTTS, create_text_provider
 from waifu.agent import AgentRunner, ContextBuilder, UtilityAI
 from waifu.card import CardImporter, CardParser
 from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
@@ -88,24 +88,21 @@ def _config_seed(config: "WaifuConfig") -> dict:
 
 
 def _build_provider(config: "ProviderConfig") -> ProviderText:
-    """從 ProviderConfig 建立 ProviderText"""
-    return ProviderText(
-        name="waifu-provider",
-        api_key=config.api_key,
-        base_url=config.base_url,
+    return create_text_provider(
+        provider=config.provider,  # type: ignore
         model=config.model,
+        api_key=config.api_key,
         temperature=config.temperature,
         max_tokens=config.max_tokens,
-        stream=config.stream,
+        stream=True,
     )
 
 
 def _build_utility_provider(config: "ProviderConfig") -> ProviderText:
-    return ProviderText(
-        name="waifu-utility",
-        api_key=config.api_key,
-        base_url=config.base_url,
+    return create_text_provider(
+        provider=config.provider,  # type: ignore
         model=config.model,
+        api_key=config.api_key,
         temperature=0.3,
         max_tokens=config.max_tokens,
         stream=False,
@@ -267,9 +264,7 @@ class Waifu:
 
         import functools
 
-        self._heartbeat_manager = HeartbeatManager(
-            dispatch_fn=functools.partial(self._dispatch, skip_auto_title=True)
-        )
+        self._heartbeat_manager = HeartbeatManager(dispatch_fn=functools.partial(self._dispatch, skip_auto_title=True))
 
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
