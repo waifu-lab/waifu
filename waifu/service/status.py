@@ -53,7 +53,7 @@ class StatusService:
             "active_conversations": active_conversations,
             "plugins_loaded": plugins_loaded,
             "mcp_servers": mcp_list,
-            "character": cfg.get("context.character"),
+            "character": cfg.get("character"),
             "provider": {
                 "model": cfg.get("provider.model"),
                 "base_url": cfg.get("provider.base_url"),

@@ -75,15 +75,26 @@ def _to_waifu_message(m: Any) -> BaseMessage:
 def _config_seed(config: "WaifuConfig") -> dict:
     """Flatten WaifuConfig into dotted key/value pairs for DB seeding."""
     entries: dict = {}
-    for field, value in config.gateway.model_dump().items():
-        entries[f"gateway.{field}"] = value
-    for field, value in config.context.model_dump(exclude={"soul_content"}).items():
-        entries[f"context.{field}"] = value
-    for field, value in config.provider.model_dump().items():
-        entries[f"provider.{field}"] = value
+
+    def add_section(prefix: str, data: dict) -> None:
+        for field, value in data.items():
+            key = f"{prefix}.{field}"
+            if isinstance(value, dict):
+                add_section(key, value)
+            else:
+                entries[key] = value
+
+    add_section("gateway", config.gateway.model_dump())
+    add_section("context", config.context.model_dump(exclude={"soul_content"}, exclude_none=True))
+    add_section("provider", config.provider.model_dump(exclude_none=True))
     if config.utility_provider is not None:
-        for field, value in config.utility_provider.model_dump().items():
-            entries[f"utility_provider.{field}"] = value
+        add_section("utility_provider", config.utility_provider.model_dump(exclude_none=True))
+    if config.voice is not None:
+        add_section("voice", config.voice.model_dump(exclude_none=True))
+    if config.node is not None:
+        add_section("node", config.node.model_dump(exclude_none=True))
+    if config.character is not None:
+        entries["character"] = config.character
     return entries
 
 

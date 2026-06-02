@@ -53,13 +53,6 @@ def cmd_start(args: List[str]) -> None:
 def _load_config(path: Union[str, Path]):
     from waifu.config import WaifuConfig
 
-    base_url_defaults = {
-        "openai": "https://api.openai.com/v1/chat/completions",
-        "anthropic": "https://api.anthropic.com/v1/chat/completions",
-        "google": "https://generativelanguage.googleapis.com/v1beta/chat/completions",
-        "ollama": "http://localhost:11434/v1/chat/completions",
-    }
-
     config_path = Path(path)
     if not config_path.exists():
         print(f"Config file not found: {path}", file=sys.stderr)
@@ -86,9 +79,6 @@ def _load_config(path: Union[str, Path]):
     else:
         print(f"Unsupported config format: {suffix}", file=sys.stderr)
         sys.exit(1)
-
-    if "base_url" not in data["provider"]:
-        data["provider"]["base_url"] = base_url_defaults.get(data["provider"]["provider"])
 
     return WaifuConfig(**data)
 
