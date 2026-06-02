@@ -6,6 +6,8 @@ from rich.prompt import Confirm, Prompt
 from waifu.cli._console import console, err_console
 from waifu.store.paths import AppPaths
 
+from hai.providers import PROVIDERS
+
 
 def _masked_input(prompt: str) -> str:
     """Read a line of input, echoing '*' for each character (cross-platform)."""
@@ -61,6 +63,95 @@ def _masked_input(prompt: str) -> str:
     return "".join(chars)
 
 
+def _selected_input(prompt: str, options: list[str], default: int = 1) -> str:
+    # Interactive selector: navigate with arrow keys or WASD, Enter to choose.
+    console.print(prompt)
+    selected = max(0, min(len(options) - 1, default - 1))
+
+    def _render():
+        for i, opt in enumerate(options):
+            if i == selected:
+                sys.stdout.write(f"\x1b[2K> {i+1}. {opt}\n")
+            else:
+                sys.stdout.write(f"\x1b[2K  {i+1}. {opt}\n")
+        sys.stdout.flush()
+
+    try:
+        # Initial render
+        _render()
+
+        if sys.platform == "win32":
+            import msvcrt
+
+            while True:
+                ch = msvcrt.getwch()
+                if ch in ("\r", "\n"):
+                    break
+                if ch in ("\x00", "\xe0"):  # special key prefix
+                    k = msvcrt.getwch()
+                    if k == "H":  # up
+                        selected = (selected - 1) % len(options)
+                    elif k == "P":  # down
+                        selected = (selected + 1) % len(options)
+                else:
+                    low = ch.lower()
+                    if low == "w":
+                        selected = (selected - 1) % len(options)
+                    elif low == "s":
+                        selected = (selected + 1) % len(options)
+
+                # move cursor up and re-render
+                sys.stdout.write(f"\x1b[{len(options)}A")
+                _render()
+
+        else:
+            import termios, tty
+
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                tty.setcbreak(fd)
+                while True:
+                    ch = sys.stdin.read(1)
+                    if ch in ("\r", "\n"):
+                        break
+                    if ch == "\x1b":
+                        seq = sys.stdin.read(2)
+                        if seq == "[A":
+                            selected = (selected - 1) % len(options)
+                        elif seq == "[B":
+                            selected = (selected + 1) % len(options)
+                    else:
+                        low = ch.lower()
+                        if low == "w":
+                            selected = (selected - 1) % len(options)
+                        elif low == "s":
+                            selected = (selected + 1) % len(options)
+
+                    sys.stdout.write(f"\x1b[{len(options)}A")
+                    _render()
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    except Exception:
+        # Fallback to simple prompt if low-level input fails
+        console.print()
+        for index, option in enumerate(options, start=1):
+            console.print(f"  {index}. {option}")
+        raw = Prompt.ask("  Select", default=str(default))
+        try:
+            idx = int(raw)
+            if 1 <= idx <= len(options):
+                return options[idx - 1]
+        except Exception:
+            pass
+        err_console.print(f"[red]Invalid selection.[/red]")
+        raise
+
+    console.print()  # move to next line after selection
+    return options[selected]
+
+
 def cmd_init(args: List[str]) -> None:
     paths = AppPaths.resolve()
     cfg_file = paths.config_file
@@ -85,11 +176,12 @@ def cmd_init(args: List[str]) -> None:
     console.rule("[dim]Provider[/dim]")
     console.print()
     api_key = _masked_input("  API key: ")
+    provider = _selected_input("  Provider:", [*PROVIDERS, "custom"])
     if not api_key.strip():
         err_console.print("[red]API key is required.[/red]")
         sys.exit(1)
 
-    base_url = Prompt.ask("  Base URL", default="https://api.openai.com/v1")
+    base_url = None if provider != "custom" else Prompt.ask("  Base URL (for custom provider)", default="").strip()
     model = Prompt.ask("  Model", default="gpt-4o")
 
     console.rule("[dim]Persona[/dim]")
@@ -105,7 +197,7 @@ def cmd_init(args: List[str]) -> None:
     from waifu.config import ContextConfig, GatewayConfig, ProviderConfig, WaifuConfig
 
     config = WaifuConfig(
-        provider=ProviderConfig(api_key=api_key, base_url=base_url, model=model),
+        provider=ProviderConfig(provider=provider, api_key=api_key, base_url=base_url, model=model),
         context=ContextConfig(system_prompt_template=system_prompt),
         gateway=GatewayConfig(host=host, port=port),
     )
