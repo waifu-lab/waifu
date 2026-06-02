@@ -15,6 +15,7 @@ class GatewayCore:
         self._session_manager = SessionManager(ttl=session_ttl)
         self._lane_manager = LaneManager(max_queue_size=lane_max_queue)
         self._dispatch_handler: Optional[Callable[[IncomingRequest], Awaitable[OutgoingResponse]]] = None
+        self._command_service: Any = None
         self._started: bool = False
         self.capabilities: Dict[str, Any] = {}
 
@@ -34,6 +35,14 @@ class GatewayCore:
     ) -> None:
         """注入請求處理器（由 Waifu 在組裝時呼叫）"""
         self._dispatch_handler = handler
+
+    def set_command_service(self, service: Any) -> None:
+        """注入平台內建指令服務，供 adapters 註冊 native commands。"""
+        self._command_service = service
+
+    @property
+    def command_service(self) -> Any:
+        return self._command_service
 
     async def dispatch(self, request: IncomingRequest) -> None:
         """將請求放入對應 conversation 的 Lane，確保串行執行"""

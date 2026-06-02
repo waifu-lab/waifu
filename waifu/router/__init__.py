@@ -114,21 +114,22 @@ def include_routers(
         and session_manager is not None
         and conversation_store is not None
     ):
+        from waifu.service.status import StatusService
+
         from .status import make_status_router
 
-        app.include_router(
-            make_status_router(
-                get_started_at=get_started_at or (lambda: 0.0),
-                session_manager=session_manager,
-                conversation_store=conversation_store,
-                plugin_manager=plugin_manager,
-                mcp_service=mcp_service,
-                config_service=config_service,
-                voice_enabled=voice_enabled,
-                stt_enabled=stt_enabled,
-                tts_enabled=tts_enabled,
-            )
+        status_service = StatusService(
+            get_started_at=get_started_at or (lambda: 0.0),
+            session_manager=session_manager,
+            conversation_store=conversation_store,
+            plugin_manager=plugin_manager,
+            mcp_service=mcp_service,
+            config_service=config_service,
+            voice_enabled=voice_enabled,
+            stt_enabled=stt_enabled,
+            tts_enabled=tts_enabled,
         )
+        app.include_router(make_status_router(status_service))
 
 
 __all__ = ["include_routers"]

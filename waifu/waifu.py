@@ -19,10 +19,12 @@ from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
 from waifu.plugin.loader import PluginLoader
 from waifu.service.character import CharacterService
+from waifu.service.command import CommandService
 from waifu.service.config import AppConfigService
 from waifu.service.mcp import MCPService
 from waifu.service.plugin import PluginService
 from waifu.service.skill import SkillService
+from waifu.service.status import StatusService
 from waifu.skill import SkillPromptHook, SkillRegistry, make_skill_tool, scan_skills
 from waifu.store import AppPaths, CharacterManager, CronStore, Database, FileMemoryStore
 from waifu.store.conversation import ConversationStore
@@ -172,6 +174,7 @@ class Waifu:
         # Hook
         self._hook_registry = HookRegistry()
         self._hook_pipeline = HookPipeline(self._hook_registry)
+        self._memory_hook: Optional[MemoryHook] = None
         self._register_builtin_hooks(config)
 
         # Agent
@@ -229,6 +232,28 @@ class Waifu:
         self._mcp_service = MCPService(self._mcp_manager, self._paths.mcp_config_file)
         self._skill_service = SkillService(self._skill_registry, self._paths.skills_dir)
         self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
+        voice_enabled = self._voice_service is not None
+        self._status_service = StatusService(
+            get_started_at=lambda: self._started_at,
+            session_manager=self._gateway.session_manager,
+            conversation_store=self._conversation_store,
+            plugin_manager=self._plugin_manager,
+            mcp_service=self._mcp_service,
+            config_service=self._config_service,
+            voice_enabled=voice_enabled,
+            stt_enabled=bool(self._voice_service and self._voice_service.has_stt),
+            tts_enabled=bool(self._voice_service and self._voice_service.has_tts),
+        )
+        self._command_service = CommandService(
+            status_service=self._status_service,
+            session_manager=self._gateway.session_manager,
+            plugin_registry=self._plugin_registry,
+            mcp_service=self._mcp_service,
+            skill_service=self._skill_service,
+            config_service=self._config_service,
+            memory_clear=self._memory_hook.clear if self._memory_hook is not None else None,
+        )
+        self._gateway.set_command_service(self._command_service)
         self._character_service = CharacterService(
             self._character_repo,
             self._relationship_repo,
@@ -256,12 +281,12 @@ class Waifu:
                 max_recent=config.context.max_history_messages,
             )
 
-        self._hook_registry.register(
-            MemoryHook(
-                store=memory_store,
-                max_history=config.context.max_history_messages,
-            )
+        memory_hook = MemoryHook(
+            store=memory_store,
+            max_history=config.context.max_history_messages,
         )
+        self._memory_hook = memory_hook
+        self._hook_registry.register(memory_hook)
         emohook = EmotionHook()
         self._hook_registry.register(emohook)
         if self._voice_service is not None and self._voice_service.has_tts:
@@ -461,6 +486,10 @@ class Waifu:
           Session → HookPipeline.pre → ContextBuilder → AgentRunner
           → HookPipeline.post → OutgoingResponse
         """
+        command_response = await self._command_service.try_execute(request)
+        if command_response is not None:
+            return command_response
+
         session = self._gateway.session_manager.get_or_create(request.conversation_id)
 
         # Ensure the conversation row exists in DB

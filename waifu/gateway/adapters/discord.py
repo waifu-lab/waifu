@@ -1,5 +1,5 @@
 import uuid
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
 
@@ -37,21 +37,48 @@ class DiscordAdapter(BaseGatewayAdapter):
         self._core: Optional["GatewayCore"] = None
         self._client: Optional[object] = None
 
-    async def start(self, core: "GatewayCore") -> None:
+    async def start(self, core: "GatewayCore") -> None:  # noqa: C901
         import asyncio
 
         import discord
+        from discord import app_commands
 
         self._core = core
         intents = discord.Intents.default()
         intents.message_content = True
 
         client = discord.Client(intents=intents)
+        tree = app_commands.CommandTree(client)
         self._client = client
+        commands_synced = False
+
+        command_service = core.command_service
+        if command_service is not None:
+            for definition in command_service.definitions:
+                if definition.name == "model":
+                    callback = _make_discord_model_command_callback(core)
+                    callback = app_commands.describe(model="Optional model name")(callback)
+                else:
+                    callback = _make_discord_command_callback(core, definition.name)
+                tree.add_command(
+                    app_commands.Command(
+                        name=definition.name,
+                        description=definition.description,
+                        callback=callback,
+                    )
+                )
 
         @client.event
         async def on_ready() -> None:
+            nonlocal commands_synced
             logger.info("Discord adapter ready: {}", client.user)
+            if command_service is not None and not commands_synced:
+                try:
+                    await tree.sync()
+                    commands_synced = True
+                    logger.info("Discord slash commands synced")
+                except Exception:
+                    logger.exception("Failed to sync Discord slash commands")
 
         @client.event
         async def on_message(message: discord.Message) -> None:
@@ -116,6 +143,81 @@ class DiscordAdapter(BaseGatewayAdapter):
     async def stop(self) -> None:
         if self._client is not None:
             await self._client.close()  # type: ignore[attr-defined]
+
+
+def _make_discord_command_callback(core: "GatewayCore", command_name: str):
+    async def callback(interaction: Any) -> None:
+        await _dispatch_discord_interaction_command(core, interaction, command_name)
+
+    return callback
+
+
+def _make_discord_model_command_callback(core: "GatewayCore"):
+    async def callback(interaction: Any, model: Optional[str] = None) -> None:
+        await _dispatch_discord_interaction_command(core, interaction, "model", model or "")
+
+    return callback
+
+
+async def _dispatch_discord_interaction_command(
+    core: "GatewayCore",
+    interaction: Any,
+    command_name: str,
+    args: str = "",
+) -> None:
+    try:
+        if not interaction.response.is_done():
+            await interaction.response.defer(thinking=True)
+    except Exception:
+        logger.debug("Discord interaction defer failed")
+
+    mode, conversation_id = _discord_interaction_conversation(interaction)
+    user = interaction.user
+    content = f"/{command_name}" + (f" {args}" if args else "")
+    request = IncomingRequest(
+        request_id=str(uuid.uuid4()),
+        conversation_id=conversation_id,
+        mode=mode,
+        sender=Sender(
+            user_id=f"discord:user:{user.id}",
+            display_name=getattr(user, "display_name", None) or getattr(user, "name", str(user.id)),
+        ),
+        source=DiscordAdapter.name,
+        content=content,
+        metadata={"platform_command": True, "platform_command_name": command_name},
+        reply_fn=_make_discord_interaction_reply_fn(interaction),
+    )
+    await core.dispatch(request)
+
+
+def _discord_interaction_conversation(interaction: Any) -> tuple[ConversationMode, str]:
+    if getattr(interaction, "guild", None) is None:
+        return ConversationMode.direct, f"discord:dm:{interaction.user.id}"
+    channel_id = getattr(interaction, "channel_id", None) or getattr(getattr(interaction, "channel", None), "id", None)
+    return ConversationMode.group, f"discord:channel:{channel_id}"
+
+
+def _make_discord_interaction_reply_fn(interaction: Any):
+    buffer: list[str] = []
+
+    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+        if chunk is not None:
+            buffer.append(chunk)
+            return
+        if response is None:
+            return
+        final = response.content or "".join(buffer)
+        if not final:
+            return
+        try:
+            if not interaction.response.is_done():
+                await interaction.response.send_message(final)
+            else:
+                await interaction.edit_original_response(content=final)
+        except Exception:
+            logger.exception("Failed to send Discord interaction response")
+
+    return reply_fn
 
 
 def _make_discord_reply_fn(message: object, stream_edit: bool = True):

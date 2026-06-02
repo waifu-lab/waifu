@@ -253,6 +253,19 @@ class FileMemoryStore:
             encoding="utf-8",
         )
 
+    async def clear(self, key: str) -> None:
+        """清除短期對話與摘要，保留關係與記住的事。"""
+        path = self._resolve_path(key)
+        if not path.exists():
+            return
+        mem = _parse_memory_file(path.read_text(encoding="utf-8"))
+        mem.recent_messages = []
+        mem.summary = ""
+        path.write_text(
+            _render_memory_file(mem, self._max_recent),
+            encoding="utf-8",
+        )
+
     async def get_relationship(self, key: str) -> str:
         """
         取得指定對話的關係層文字

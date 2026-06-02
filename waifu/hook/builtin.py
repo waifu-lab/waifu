@@ -1,8 +1,10 @@
+import inspect
 import re
 import time
 from collections import defaultdict
 from typing import TYPE_CHECKING, Dict, List, Optional, Protocol, runtime_checkable
 
+from waifu.logger import logger
 from waifu_types import BaseHook, BaseMessage, ConversationMode, HookContext, SystemPromptLayers, UserMessage
 
 if TYPE_CHECKING:
@@ -18,9 +20,6 @@ class MemoryStore(Protocol):
 @runtime_checkable
 class RelationshipMemoryStore(MemoryStore, Protocol):
     async def get_relationship(self, key: str) -> str: ...
-
-
-from waifu.logger import logger
 
 
 class RateLimitHook(BaseHook):
@@ -106,6 +105,14 @@ class MemoryHook(BaseHook):
         await self._store.save(cid, full_history)
         return ctx
 
+    async def clear(self, conversation_id: str) -> None:
+        clear_fn = getattr(self._store, "clear", None)
+        if clear_fn is None:
+            return
+        result = clear_fn(conversation_id)
+        if inspect.isawaitable(result):
+            await result
+
     async def _inject_relationship(self, ctx: HookContext, store: RelationshipMemoryStore) -> None:
         """從 store 取得關係層，注入 ctx.metadata["relationship"]"""
         if ctx.request.mode == ConversationMode.session:
@@ -128,6 +135,9 @@ class InMemoryStore:
 
     async def save(self, key: str, messages: List[BaseMessage]) -> None:
         self._data[key] = list(messages)
+
+    async def clear(self, key: str) -> None:
+        self._data.pop(key, None)
 
 
 # 支援的情緒關鍵字映射（可在子類覆寫）

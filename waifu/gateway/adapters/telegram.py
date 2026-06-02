@@ -39,21 +39,20 @@ class TelegramAdapter(BaseGatewayAdapter):
         self._app: Optional[object] = None
         self._bot_username: Optional[str] = None
 
-    async def start(self, core: "GatewayCore") -> None:
+    async def start(self, core: "GatewayCore") -> None:  # noqa: C901
         import asyncio
 
-        from telegram.ext import ApplicationBuilder, MessageHandler, filters
-        from telegram import Update
+        from telegram import BotCommand, Update
+        from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 
         self._core = core
         app = ApplicationBuilder().token(self._token).build()
         self._app = app
 
         adapter = self
+        command_service = core.command_service
 
-        async def on_message(update: Update, context: object) -> None:
-            from telegram import Update
-
+        async def dispatch_update(update: Update, context: object, *, platform_command: bool = False) -> None:
             if not isinstance(update, Update) or update.message is None:
                 return
 
@@ -71,11 +70,11 @@ class TelegramAdapter(BaseGatewayAdapter):
                 mode = ConversationMode.direct
                 conversation_id = f"telegram:chat:{chat.id}"
             else:
-                # GROUP：@mention 或 /trigger_command 才 dispatch
+                # GROUP：@mention 或 /trigger_command 或內建 platform command 才 dispatch
                 bot_username = adapter._bot_username or ""
                 mentioned = bot_username and f"@{bot_username}" in text
                 triggered = text.startswith(f"/{adapter._trigger_command}")
-                if not (mentioned or triggered):
+                if not (platform_command or mentioned or triggered):
                     return
                 mode = ConversationMode.group
                 conversation_id = f"telegram:group:{chat.id}"
@@ -85,30 +84,15 @@ class TelegramAdapter(BaseGatewayAdapter):
                 display_name=user.full_name,
             )
 
-            stream_edit = adapter._stream_edit
+            stream_edit = adapter._stream_edit and not platform_command
             reply_fn = _make_telegram_reply_fn(msg, stream_edit=stream_edit)
 
-            # ── 附件：圖片（photo）或文件（document）─────────────────────
-            attachments: list[Attachment] = []
-            try:
-                if msg.photo:
-                    # 選最大尺寸（最後一個）
-                    largest = msg.photo[-1]
-                    tg_file = await context.bot.get_file(largest.file_id)
-                    data = bytes(await tg_file.download_as_bytearray())
-                    attachments.append(Attachment(filename="photo.jpg", content_type="image/jpeg", data=data))
-                elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
-                    tg_file = await context.bot.get_file(msg.document.file_id)
-                    data = bytes(await tg_file.download_as_bytearray())
-                    attachments.append(
-                        Attachment(
-                            filename=msg.document.file_name or "document",
-                            content_type=msg.document.mime_type,
-                            data=data,
-                        )
-                    )
-            except Exception:
-                logger.warning("Failed to download Telegram attachment, skipping")
+            attachments = await _telegram_attachments(msg, context)
+
+            metadata = {}
+            if platform_command:
+                command_name = _telegram_command_name(text)
+                metadata = {"platform_command": True, "platform_command_name": command_name}
 
             request = IncomingRequest(
                 request_id=str(uuid.uuid4()),
@@ -118,21 +102,36 @@ class TelegramAdapter(BaseGatewayAdapter):
                 source=adapter.name,
                 content=text,
                 attachments=attachments,
+                metadata=metadata,
                 reply_fn=reply_fn,
             )
 
             if adapter._core is not None:
                 await adapter._core.dispatch(request)
 
-        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message))
-        app.add_handler(MessageHandler(filters.COMMAND, on_message))
-        app.add_handler(MessageHandler(filters.PHOTO, on_message))
-        app.add_handler(MessageHandler(filters.Document.IMAGE, on_message))
+        async def on_message(update: Update, context: object) -> None:
+            await dispatch_update(update, context)
+
+        async def on_platform_command(update: Update, context: object) -> None:
+            await dispatch_update(update, context, platform_command=True)
+
+        if command_service is not None:
+            for definition in command_service.definitions:
+                app.add_handler(CommandHandler(definition.name, on_platform_command), group=0)
+
+        app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_message), group=1)
+        app.add_handler(CommandHandler(self._trigger_command, on_message), group=1)
+        app.add_handler(MessageHandler(filters.PHOTO, on_message), group=1)
+        app.add_handler(MessageHandler(filters.Document.IMAGE, on_message), group=1)
 
         async def _run() -> None:
             await app.initialize()
             me = await app.bot.get_me()
             adapter._bot_username = me.username
+            if command_service is not None:
+                await app.bot.set_my_commands(
+                    [BotCommand(d.name, d.description[:256]) for d in command_service.definitions]
+                )
             logger.info("Telegram adapter ready: @{}", me.username)
             await app.start()
             await app.updater.start_polling()
@@ -147,6 +146,35 @@ class TelegramAdapter(BaseGatewayAdapter):
             await self._app.updater.stop()  # type: ignore[attr-defined]
             await self._app.stop()  # type: ignore[attr-defined]
             await self._app.shutdown()  # type: ignore[attr-defined]
+
+
+async def _telegram_attachments(msg: object, context: object) -> list[Attachment]:
+    attachments: list[Attachment] = []
+    try:
+        if msg.photo:  # type: ignore[attr-defined]
+            # 選最大尺寸（最後一個）
+            largest = msg.photo[-1]  # type: ignore[attr-defined]
+            tg_file = await context.bot.get_file(largest.file_id)  # type: ignore[attr-defined]
+            data = bytes(await tg_file.download_as_bytearray())
+            attachments.append(Attachment(filename="photo.jpg", content_type="image/jpeg", data=data))
+        elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):  # type: ignore[attr-defined]
+            tg_file = await context.bot.get_file(msg.document.file_id)  # type: ignore[attr-defined]
+            data = bytes(await tg_file.download_as_bytearray())
+            attachments.append(
+                Attachment(
+                    filename=msg.document.file_name or "document",  # type: ignore[attr-defined]
+                    content_type=msg.document.mime_type,  # type: ignore[attr-defined]
+                    data=data,
+                )
+            )
+    except Exception:
+        logger.warning("Failed to download Telegram attachment, skipping")
+    return attachments
+
+
+def _telegram_command_name(text: str) -> str:
+    command = (text.strip().split(maxsplit=1)[0] if text.strip() else "").lstrip("/")
+    return command.split("@", 1)[0].lower()
 
 
 def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
