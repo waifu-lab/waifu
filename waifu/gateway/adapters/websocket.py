@@ -30,6 +30,15 @@ class WebSocketAdapter(BaseGatewayAdapter):
 
     name = "websocket"
 
+    @classmethod
+    def default_gateway_config(cls) -> dict[str, object]:
+        return {"enabled": True}
+
+    @classmethod
+    def from_gateway_config(cls, _config: dict[str, object], **deps: object) -> "WebSocketAdapter | None":
+        # Cannot disable
+        return cls(voice_service=deps.get("voice_service"))
+
     def __init__(
         self,
         voice_service: Optional["VoiceService"] = None,
@@ -82,9 +91,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
         finally:
             self._connections.pop(session_token, None)
 
-    async def _handle_live2dsync(
-        self, websocket: "WebSocket", session_token: str, data: Dict[str, Any]
-    ) -> None:
+    async def _handle_live2dsync(self, websocket: "WebSocket", session_token: str, data: Dict[str, Any]) -> None:
         expressions: list = data.get("expressions", [])
         if self._core is not None:
             session = self._core.session_manager.get_or_create(session_token)
@@ -92,9 +99,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
             logger.debug("live2dsync: stored {} expressions for session {}", len(expressions), session_token)
         await websocket.send_json({"type": "live2dsync_ack", "count": len(expressions)})
 
-    def _handle_heartbeat_event(
-        self, websocket: "WebSocket", session_token: str, data: Dict[str, Any]
-    ) -> None:
+    def _handle_heartbeat_event(self, websocket: "WebSocket", session_token: str, data: Dict[str, Any]) -> None:
         if self._heartbeat is None:
             return
         event_name: str = data.get("name", "")
@@ -105,9 +110,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
             if exprs:
                 event_data = {**event_data, "_live2d_expressions": exprs}
         reply_fn = _make_heartbeat_reply_fn(websocket, self._character_name)
-        asyncio.create_task(
-            self._heartbeat.dispatch(event_name, event_data, session_token, session_token, reply_fn)
-        )
+        asyncio.create_task(self._heartbeat.dispatch(event_name, event_data, session_token, session_token, reply_fn))
 
     async def _handle_chat(
         self, websocket: "WebSocket", session_token: str, data: Dict[str, Any], msg_type: str

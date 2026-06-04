@@ -1,8 +1,8 @@
 from typing import TYPE_CHECKING
 
 from .http import HTTPAdapter
-from .websocket import WebSocketAdapter
 from .waifu_node import WaifuNodeAdapter
+from .websocket import WebSocketAdapter
 
 if TYPE_CHECKING:
     from .discord import DiscordAdapter

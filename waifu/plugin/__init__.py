@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from hai.tool.toolcalling import Tool
     from waifu.gateway.core import GatewayCore
     from waifu.hook import HookRegistry
+    from waifu.service.gateway import GatewayConfigService
 
 from waifu.logger import logger
 
@@ -73,13 +74,16 @@ class _PluginContextImpl:
         sessions: SessionService,
         gateway: "GatewayCore",
         plugin: BasePlugin,
+        gateway_config_service: Optional["GatewayConfigService"] = None,
         voice: Optional[VoiceServiceProtocol] = None,
     ) -> None:
         self._registry = registry
         self._hook_registry = hook_registry
         self._gateway = gateway
         self._plugin = plugin
+        self._gateway_config_service = gateway_config_service
         self.config = config
+        self.gateway_config = {} if gateway_config_service is None else gateway_config_service.get_config()
         self.store = store
         self.sessions = sessions
         self.voice = voice
@@ -100,6 +104,14 @@ class _PluginContextImpl:
     async def register_adapter(self, adapter: BaseGatewayAdapter) -> None:
         await self._gateway.mount_adapter(adapter)
 
+    def register_adapter_type(self, adapter_type: type[BaseGatewayAdapter]) -> None:
+        if self._gateway_config_service is None:
+            return
+        self._gateway_config_service.register_adapter_type(adapter_type)
+        self.gateway_config = self._gateway_config_service.get_config()
+        if adapter_type.name not in self._plugin.registered_adapter_types:
+            self._plugin.registered_adapter_types.append(adapter_type.name)
+
 
 class PluginManager:
     """
@@ -115,6 +127,7 @@ class PluginManager:
         store: ConversationService,
         sessions: SessionService,
         gateway: "GatewayCore",
+        gateway_config_service: Optional["GatewayConfigService"] = None,
         voice: Optional[VoiceServiceProtocol] = None,
     ) -> None:
         self._hook_registry = hook_registry
@@ -122,6 +135,7 @@ class PluginManager:
         self._store = store
         self._sessions = sessions
         self._gateway = gateway
+        self._gateway_config_service = gateway_config_service
         self._voice = voice
         self._plugins: Dict[str, Tuple[BasePlugin, PluginState]] = {}
 
@@ -130,6 +144,7 @@ class PluginManager:
         plugin.registered_tools = []
         plugin.registered_hooks = []
         plugin.registered_mcps = []
+        plugin.registered_adapter_types = []
         self._plugins[name] = (plugin, PluginState.loading)
         try:
             ctx = _PluginContextImpl(
@@ -140,6 +155,7 @@ class PluginManager:
                 sessions=self._sessions,
                 gateway=self._gateway,
                 plugin=plugin,
+                gateway_config_service=self._gateway_config_service,
                 voice=self._voice,
             )
             await plugin.on_load(ctx)
@@ -161,6 +177,9 @@ class PluginManager:
             self._hook_registry.unregister(hook_name)
         for mcp_name in plugin.registered_mcps:
             self._plugin_registry.remove_mcp(mcp_name)
+        for adapter_type_name in plugin.registered_adapter_types:
+            if self._gateway_config_service is not None:
+                self._gateway_config_service.remove_adapter_type(adapter_type_name)
         await plugin.on_disable()
         await plugin.on_unload()
         del self._plugins[name]

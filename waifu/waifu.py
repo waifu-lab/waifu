@@ -21,6 +21,7 @@ from waifu.plugin.loader import PluginLoader
 from waifu.service.character import CharacterService
 from waifu.service.command import CommandService
 from waifu.service.config import AppConfigService
+from waifu.service.gateway import GatewayConfigService
 from waifu.service.mcp import MCPService
 from waifu.service.plugin import PluginService
 from waifu.service.skill import SkillService
@@ -156,7 +157,11 @@ class Waifu:
     """
 
     def __init__(
-        self, config: WaifuConfig, paths: Optional[AppPaths] = None, localmode: Optional[bool] = False
+        self,
+        config: WaifuConfig,
+        paths: Optional[AppPaths] = None,
+        localmode: Optional[bool] = False,
+        gateway_config_service: Optional[GatewayConfigService] = None,
     ) -> None:
         self._config = config
         self._localmode: bool = bool(localmode)
@@ -214,6 +219,7 @@ class Waifu:
             store=self._conversation_store,
             sessions=self._gateway.session_manager,
             gateway=self._gateway,
+            gateway_config_service=gateway_config_service,
             voice=self._voice_service,
         )
         self._gateway.set_dispatch_handler(self._dispatch)
@@ -248,6 +254,7 @@ class Waifu:
             plugin_manager=self._plugin_manager,
             mcp_service=self._mcp_service,
             config_service=self._config_service,
+            gateway_config_service=gateway_config_service,
             voice_enabled=voice_enabled,
             stt_enabled=bool(self._voice_service and self._voice_service.has_stt),
             tts_enabled=bool(self._voice_service and self._voice_service.has_tts),

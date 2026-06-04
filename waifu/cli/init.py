@@ -16,6 +16,7 @@ from waifu.config import (
     WaifuConfig,
     WaifuNodeConfig,
 )
+from waifu.gateway.config import build_builtin_gateway_adapter_registry
 from waifu.store.paths import AppPaths
 
 _PROVIDER_BASE_URL_DEFAULTS = {
@@ -332,6 +333,7 @@ def cmd_init(args: List[str]) -> None:
     console.print("[bold]waifu init[/bold]")
     console.print()
     console.print(f"  Config : [dim]{cfg_file}[/dim]")
+    console.print(f"  Gateway: [dim]{paths.gateway_config_file}[/dim]")
     console.print(f"  DB     : [dim]{paths.db_file}[/dim]")
     console.print()
 
@@ -341,6 +343,11 @@ def cmd_init(args: List[str]) -> None:
         overwrite = Confirm.ask("Overwrite?", default=False)
         if not overwrite:
             # Still init DB in case it's missing
+            if not paths.gateway_config_file.exists():
+                _write_gateway_config(
+                    build_builtin_gateway_adapter_registry().create_default_config(),
+                    paths.gateway_config_file,
+                )
             _bootstrap_db(paths)
             console.print("[dim]Config unchanged. DB ready.[/dim]")
             return
@@ -405,6 +412,10 @@ def cmd_init(args: List[str]) -> None:
         character=character,
     )
     _write_config(config.model_dump(exclude_none=True), cfg_file)
+    _write_gateway_config(
+        build_builtin_gateway_adapter_registry().create_default_config(),
+        paths.gateway_config_file,
+    )
 
     _bootstrap_db(paths)
 
@@ -421,6 +432,11 @@ def _write_config(data: dict, path: Path) -> None:
     with open(path, "wb") as f:
         tomli_w.dump(_strip_none(data), f)
     console.print(f"[dim]Config written → {path}[/dim]")
+
+
+def _write_gateway_config(config, path: Path) -> None:
+    config.save(path)
+    console.print(f"[dim]Gateway written ??{path}[/dim]")
 
 
 def _bootstrap_db(paths: AppPaths) -> None:

@@ -20,6 +20,7 @@ class AppPaths:
     WAIFU_DATA_DIR    override data directory
     WAIFU_CONFIG_DIR  override config directory
     WAIFU_CONFIG      override full path to config.toml
+    WAIFU_GATEWAY_CONFIG override full path to gateway.config.yaml
     """
 
     def __init__(self, data_dir: Path, config_dir: Path) -> None:
@@ -31,6 +32,12 @@ class AppPaths:
         if env := os.environ.get("WAIFU_CONFIG"):
             return Path(env)
         return self.config_dir / "config.toml"
+
+    @property
+    def gateway_config_file(self) -> Path:
+        if env := os.environ.get("WAIFU_GATEWAY_CONFIG"):
+            return Path(env)
+        return self.config_dir / "gateway.config.yaml"
 
     @property
     def db_file(self) -> Path:

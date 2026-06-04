@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, List
 from waifu.gateway.session import SessionManager
 from waifu.plugin import PluginManager
 from waifu.service.config import AppConfigService
+from waifu.service.gateway import GatewayConfigService
 from waifu.service.mcp import MCPService
 from waifu.store.conversation import ConversationStore
 
@@ -18,6 +19,7 @@ class StatusService:
         plugin_manager: PluginManager,
         mcp_service: MCPService,
         config_service: AppConfigService,
+        gateway_config_service: GatewayConfigService | None,
         voice_enabled: bool,
         stt_enabled: bool,
         tts_enabled: bool,
@@ -28,6 +30,7 @@ class StatusService:
         self._plugin_manager = plugin_manager
         self._mcp_service = mcp_service
         self._config_service = config_service
+        self._gateway_config_service = gateway_config_service
         self._voice_enabled = voice_enabled
         self._stt_enabled = stt_enabled
         self._tts_enabled = tts_enabled
@@ -57,6 +60,11 @@ class StatusService:
             "provider": {
                 "model": cfg.get("provider.model"),
                 "base_url": cfg.get("provider.base_url"),
+            },
+            "gateway": {
+                "host": cfg.get("gateway.host"),
+                "port": cfg.get("gateway.port"),
+                "adapters": [] if self._gateway_config_service is None else self._gateway_config_service.get_adapter_status(),
             },
             "voice": {
                 "enabled": self._voice_enabled,

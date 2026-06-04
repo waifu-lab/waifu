@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from waifu.plugin import PluginManager, PluginRegistry
     from waifu.service.character import CharacterService
     from waifu.service.config import AppConfigService
+    from waifu.service.gateway import GatewayConfigService
     from waifu.service.mcp import MCPService
     from waifu.service.plugin import PluginService
     from waifu.service.skill import SkillService
@@ -30,6 +31,7 @@ def include_routers(
     mcp_service: "MCPService | None" = None,
     skill_service: "SkillService | None" = None,
     config_service: "AppConfigService | None" = None,
+    gateway_config_service: "GatewayConfigService | None" = None,
     character_service: "CharacterService | None" = None,
     cards_dir: "Path | None" = None,
     conversation_store: "ConversationStore | None" = None,
@@ -76,6 +78,11 @@ def include_routers(
         from .config import make_config_router
 
         app.include_router(make_config_router(config_service))
+
+    if gateway_config_service is not None:
+        from .gateway import make_gateway_router
+
+        app.include_router(make_gateway_router(gateway_config_service))
 
     if character_service is not None:
         from .character import make_character_router
@@ -125,6 +132,7 @@ def include_routers(
             plugin_manager=plugin_manager,
             mcp_service=mcp_service,
             config_service=config_service,
+            gateway_config_service=gateway_config_service,
             voice_enabled=voice_enabled,
             stt_enabled=stt_enabled,
             tts_enabled=tts_enabled,

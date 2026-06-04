@@ -26,7 +26,46 @@ class TelegramAdapter(BaseGatewayAdapter):
 
     name = "telegram"
 
-    def __init__(self, token: str, trigger_command: str = "shuvi", stream_edit: bool = True) -> None:
+    @classmethod
+    def default_gateway_config(cls) -> dict[str, object]:
+        return {
+            "enabled": False,
+            "token": "",
+            "trigger_command": "shuvi",
+            "stream_edit": True,
+            "group_sessions_per_user": True,
+        }
+
+    @classmethod
+    def build_gateway_status(cls, config: dict[str, object]) -> dict[str, object]:
+        return {
+            "name": cls.name,
+            "enabled": bool(config.get("enabled", False)),
+            "configured": bool(config.get("token")),
+        }
+
+    @classmethod
+    def from_gateway_config(cls, config: dict[str, object], **deps: object) -> "TelegramAdapter | None":
+        del deps
+        if not bool(config.get("enabled", False)):
+            return None
+        token = str(config.get("token", "") or "")
+        if not token:
+            return None
+        return cls(
+            token=token,
+            trigger_command=str(config.get("trigger_command", "shuvi") or "shuvi"),
+            stream_edit=bool(config.get("stream_edit", True)),
+            group_sessions_per_user=bool(config.get("group_sessions_per_user", True)),
+        )
+
+    def __init__(
+        self,
+        token: str,
+        trigger_command: str = "shuvi",
+        stream_edit: bool = True,
+        group_sessions_per_user: bool = True,
+    ) -> None:
         try:
             import telegram  # noqa: F401
         except ImportError as e:
@@ -35,6 +74,7 @@ class TelegramAdapter(BaseGatewayAdapter):
         self._token = token
         self._trigger_command = trigger_command
         self._stream_edit = stream_edit
+        self._group_sessions_per_user = group_sessions_per_user
         self._core: Optional["GatewayCore"] = None
         self._app: Optional[object] = None
         self._bot_username: Optional[str] = None
@@ -77,7 +117,11 @@ class TelegramAdapter(BaseGatewayAdapter):
                 if not (platform_command or mentioned or triggered):
                     return
                 mode = ConversationMode.group
-                conversation_id = f"telegram:group:{chat.id}"
+                conversation_id = _telegram_group_conversation_id(
+                    chat.id,
+                    user.id,
+                    group_sessions_per_user=adapter._group_sessions_per_user,
+                )
 
             sender = Sender(
                 user_id=f"telegram:user:{user.id}",
@@ -175,6 +219,13 @@ async def _telegram_attachments(msg: object, context: object) -> list[Attachment
 def _telegram_command_name(text: str) -> str:
     command = (text.strip().split(maxsplit=1)[0] if text.strip() else "").lstrip("/")
     return command.split("@", 1)[0].lower()
+
+
+def _telegram_group_conversation_id(chat_id: object, user_id: object, *, group_sessions_per_user: bool) -> str:
+    base = f"telegram:group:{chat_id}"
+    if group_sessions_per_user:
+        return f"{base}:user:{user_id}"
+    return base
 
 
 def _make_telegram_reply_fn(message: object, stream_edit: bool = True):

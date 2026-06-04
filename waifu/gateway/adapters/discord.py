@@ -26,7 +26,38 @@ class DiscordAdapter(BaseGatewayAdapter):
 
     name = "discord"
 
-    def __init__(self, token: str, stream_edit: bool = True) -> None:
+    @classmethod
+    def default_gateway_config(cls) -> dict[str, object]:
+        return {
+            "enabled": False,
+            "token": "",
+            "stream_edit": True,
+            "group_sessions_per_user": True,
+        }
+
+    @classmethod
+    def build_gateway_status(cls, config: dict[str, object]) -> dict[str, object]:
+        return {
+            "name": cls.name,
+            "enabled": bool(config.get("enabled", False)),
+            "configured": bool(config.get("token")),
+        }
+
+    @classmethod
+    def from_gateway_config(cls, config: dict[str, object], **deps: object) -> "DiscordAdapter | None":
+        del deps
+        if not bool(config.get("enabled", False)):
+            return None
+        token = str(config.get("token", "") or "")
+        if not token:
+            return None
+        return cls(
+            token=token,
+            stream_edit=bool(config.get("stream_edit", True)),
+            group_sessions_per_user=bool(config.get("group_sessions_per_user", True)),
+        )
+
+    def __init__(self, token: str, stream_edit: bool = True, group_sessions_per_user: bool = True) -> None:
         try:
             import discord  # noqa: F401
         except ImportError as e:
@@ -34,6 +65,7 @@ class DiscordAdapter(BaseGatewayAdapter):
 
         self._token = token
         self._stream_edit = stream_edit
+        self._group_sessions_per_user = group_sessions_per_user
         self._core: Optional["GatewayCore"] = None
         self._client: Optional[object] = None
 
@@ -56,10 +88,14 @@ class DiscordAdapter(BaseGatewayAdapter):
         if command_service is not None:
             for definition in command_service.definitions:
                 if definition.name == "model":
-                    callback = _make_discord_model_command_callback(core)
+                    callback = _make_discord_model_command_callback(core, self._group_sessions_per_user)
                     callback = app_commands.describe(model="Optional model name")(callback)
                 else:
-                    callback = _make_discord_command_callback(core, definition.name)
+                    callback = _make_discord_command_callback(
+                        core,
+                        definition.name,
+                        self._group_sessions_per_user,
+                    )
                 tree.add_command(
                     app_commands.Command(
                         name=definition.name,
@@ -101,7 +137,11 @@ class DiscordAdapter(BaseGatewayAdapter):
                 if not (bot_mentioned or is_reply_to_bot):
                     return
                 mode = ConversationMode.group
-                conversation_id = f"discord:channel:{message.channel.id}"
+                conversation_id = _discord_group_conversation_id(
+                    message.channel.id,
+                    message.author.id,
+                    group_sessions_per_user=self._group_sessions_per_user,
+                )
 
             sender = Sender(
                 user_id=f"discord:user:{message.author.id}",
@@ -145,16 +185,27 @@ class DiscordAdapter(BaseGatewayAdapter):
             await self._client.close()  # type: ignore[attr-defined]
 
 
-def _make_discord_command_callback(core: "GatewayCore", command_name: str):
+def _make_discord_command_callback(core: "GatewayCore", command_name: str, group_sessions_per_user: bool):
     async def callback(interaction: Any) -> None:
-        await _dispatch_discord_interaction_command(core, interaction, command_name)
+        await _dispatch_discord_interaction_command(
+            core,
+            interaction,
+            command_name,
+            group_sessions_per_user=group_sessions_per_user,
+        )
 
     return callback
 
 
-def _make_discord_model_command_callback(core: "GatewayCore"):
+def _make_discord_model_command_callback(core: "GatewayCore", group_sessions_per_user: bool):
     async def callback(interaction: Any, model: Optional[str] = None) -> None:
-        await _dispatch_discord_interaction_command(core, interaction, "model", model or "")
+        await _dispatch_discord_interaction_command(
+            core,
+            interaction,
+            "model",
+            model or "",
+            group_sessions_per_user=group_sessions_per_user,
+        )
 
     return callback
 
@@ -164,6 +215,8 @@ async def _dispatch_discord_interaction_command(
     interaction: Any,
     command_name: str,
     args: str = "",
+    *,
+    group_sessions_per_user: bool = True,
 ) -> None:
     try:
         if not interaction.response.is_done():
@@ -171,7 +224,10 @@ async def _dispatch_discord_interaction_command(
     except Exception:
         logger.debug("Discord interaction defer failed")
 
-    mode, conversation_id = _discord_interaction_conversation(interaction)
+    mode, conversation_id = _discord_interaction_conversation(
+        interaction,
+        group_sessions_per_user=group_sessions_per_user,
+    )
     user = interaction.user
     content = f"/{command_name}" + (f" {args}" if args else "")
     request = IncomingRequest(
@@ -190,11 +246,24 @@ async def _dispatch_discord_interaction_command(
     await core.dispatch(request)
 
 
-def _discord_interaction_conversation(interaction: Any) -> tuple[ConversationMode, str]:
+def _discord_interaction_conversation(
+    interaction: Any, *, group_sessions_per_user: bool = True
+) -> tuple[ConversationMode, str]:
     if getattr(interaction, "guild", None) is None:
         return ConversationMode.direct, f"discord:dm:{interaction.user.id}"
     channel_id = getattr(interaction, "channel_id", None) or getattr(getattr(interaction, "channel", None), "id", None)
-    return ConversationMode.group, f"discord:channel:{channel_id}"
+    return ConversationMode.group, _discord_group_conversation_id(
+        channel_id,
+        interaction.user.id,
+        group_sessions_per_user=group_sessions_per_user,
+    )
+
+
+def _discord_group_conversation_id(channel_id: Any, user_id: Any, *, group_sessions_per_user: bool) -> str:
+    base = f"discord:channel:{channel_id}"
+    if group_sessions_per_user:
+        return f"{base}:user:{user_id}"
+    return base
 
 
 def _make_discord_interaction_reply_fn(interaction: Any):

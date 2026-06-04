@@ -1,7 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any, Dict, runtime_checkable
-
-from typing import Protocol
+from typing import Any, Dict, Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -9,6 +7,7 @@ class PluginContext(Protocol):
     """插件載入時取得的系統資源存取點（waifu 實作，sdk 定義介面）"""
 
     config: Dict[str, Any]
+    gateway_config: Dict[str, Any]
 
     def register_hook(self, hook: Any) -> None:
         """向 HookRegistry 注冊 Hook"""
@@ -22,11 +21,16 @@ class PluginContext(Protocol):
         """向 PluginRegistry 注冊 MCP Adapter"""
         ...
 
+    def register_adapter_type(self, adapter_type: Any) -> None:
+        """註冊可由 gateway config 驅動的 adapter 類型"""
+        ...
+
 
 class BasePlugin(ABC):
     name: str
     version: str = "0.1.0"
     description: str = ""
+    registered_adapter_types: list[str] = []
 
     @abstractmethod
     async def on_load(self, ctx: PluginContext) -> None:

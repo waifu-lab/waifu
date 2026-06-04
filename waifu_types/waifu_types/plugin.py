@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 @runtime_checkable
 class PluginContext(Protocol):
     config: Dict[str, Any]
+    gateway_config: Dict[str, Any]
 
     store: ConversationService
     """持久化對話歷史，可讀寫對話與訊息"""
@@ -41,6 +42,8 @@ class PluginContext(Protocol):
         """
         ...
 
+    def register_adapter_type(self, adapter_type: type["BaseGatewayAdapter"]) -> None: ...
+
 
 class BasePlugin(ABC):
     name: str
@@ -49,6 +52,7 @@ class BasePlugin(ABC):
     registered_tools: List[str] = []
     registered_hooks: List[str] = []
     registered_mcps: List[str] = []
+    registered_adapter_types: List[str] = []
 
     @abstractmethod
     async def on_load(self, ctx: PluginContext) -> None:

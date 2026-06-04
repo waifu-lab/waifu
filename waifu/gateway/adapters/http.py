@@ -24,6 +24,16 @@ class HTTPAdapter(BaseGatewayAdapter):
 
     name = "http"
 
+    @classmethod
+    def default_gateway_config(cls) -> dict[str, object]:
+        return {"enabled": True}
+
+    @classmethod
+    def from_gateway_config(cls, _config: dict[str, object], **deps: object) -> "HTTPAdapter | None":
+        del deps
+        # Cannot disable
+        return cls()
+
     def __init__(self) -> None:
         self._core: Optional["GatewayCore"] = None
 

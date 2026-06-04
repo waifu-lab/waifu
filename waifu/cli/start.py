@@ -29,17 +29,17 @@ def cmd_start(args: List[str]) -> None:
         print("uvicorn is required: pip install uvicorn", file=sys.stderr)
         sys.exit(1)
 
-    if ns.config == "default":
-        config = _load_config(AppPaths.resolve().config_file)
-    else:
-        config = _load_config(ns.config)
+    paths = AppPaths.resolve()
+    config_path = paths.config_file if ns.config == "default" else ns.config
+    config = _load_config(config_path)
+    gateway_config = _load_gateway_config(paths.gateway_config_file)
     host = ns.host or config.gateway.host
     port = ns.port or config.gateway.port
 
     if ns.app:
         app_path = ns.app
     else:
-        app_path = _build_default_app(config)
+        app_path = _build_default_app(config, gateway_config, paths)
 
     uvicorn.run(
         app_path,
@@ -83,8 +83,16 @@ def _load_config(path: Union[str, Path]):
     return WaifuConfig(**data)
 
 
-def _build_default_app(config) -> str:
+def _load_gateway_config(path: Union[str, Path]):
+    from waifu.gateway.config import GatewayRuntimeConfig
+
+    return GatewayRuntimeConfig.load(Path(path))
+
+
+def _build_default_app(config, gateway_config, paths: AppPaths) -> str:
     import waifu._cli_app as cli_app_module
 
     cli_app_module._config = config
+    cli_app_module._gateway_config = gateway_config
+    cli_app_module._paths = paths
     return "waifu._cli_app:app"
