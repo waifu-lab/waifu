@@ -30,10 +30,9 @@ class GatewayConfig(BaseModel):
 
 
 class ContextConfig(BaseModel):
-    system_prompt_template: str = "You are a helpful assistant."
+    system_prompt_template: str = ""
     max_history_messages: int = 20
     history_strategy: Literal["sliding", "summary", "full"] = "sliding"
-    soul_content: Optional[str] = None  # soul.md content
     context_token_budget: Optional[int] = None  # None = 不限制；粗估 chars/4
     compact_threshold: float = 0.85  # 超過 budget * threshold 時觸發額外截斷
 

@@ -87,7 +87,12 @@ def _config_seed(config: "WaifuConfig") -> dict:
                 entries[key] = value
 
     add_section("gateway", config.gateway.model_dump())
-    add_section("context", config.context.model_dump(exclude={"soul_content"}, exclude_none=True))
+    add_section(
+        "context",
+        config.context.model_dump(
+            exclude_none=True,
+        ),
+    )
     add_section("memory", config.memory.model_dump(exclude_none=True))
     add_section("provider", config.provider.model_dump(exclude_none=True))
     if config.utility_provider is not None:
@@ -183,8 +188,9 @@ class Waifu:
         )
 
         self._character_manager = CharacterManager(self._paths.characters_dir)
+        soul_content: Optional[str] = None
         if config.character:
-            config.context.soul_content = self._character_manager.load_soul(config.character)
+            soul_content = self._character_manager.load_soul(config.character)
 
         self._provider = _build_provider(config.provider)
 
@@ -200,6 +206,7 @@ class Waifu:
 
         # Agent
         self._context_builder = ContextBuilder(config.context, hook_registry=self._hook_registry)
+        self._context_builder.set_soul_content(soul_content)
         self._agent_runner = AgentRunner(self._provider)
 
         # Gateway（注入 dispatch handler）— 須在 PluginManager 之前，提供 session_manager
@@ -411,7 +418,7 @@ class Waifu:
         if skipped:
             logger.info("Skipped {} existing character card(s) from {}", len(skipped), self._paths.cards_dir)
         if self._config.character:
-            self._config.context.soul_content = self._character_manager.load_soul(self._config.character)
+            self._context_builder.set_soul_content(self._character_manager.load_soul(self._config.character))
         for path, exc in errors:
             logger.warning("Failed to import card {}: {}", path, exc)
 
