@@ -3,6 +3,25 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 
+class FileMemoryConfig(BaseModel):
+    share_direct_memories: bool = True
+
+
+class HistoryTreeMemoryConfig(BaseModel):
+    base_url: str = "http://localhost:8000"
+    timeout_s: float = 10.0
+    top_k: int = 5
+    rerank: bool = False
+    query_graph: Literal["world", "self", "all"] = "world"
+    ingest_graph: Literal["world", "self"] = "world"
+
+
+class MemoryConfig(BaseModel):
+    backend: Literal["auto", "none", "file", "history_tree"] = "auto"
+    file: FileMemoryConfig = FileMemoryConfig()
+    history_tree: HistoryTreeMemoryConfig = HistoryTreeMemoryConfig()
+
+
 class GatewayConfig(BaseModel):
     host: str = "localhost"
     port: int = 8765
@@ -71,6 +90,7 @@ class WaifuNodeConfig(BaseModel):
 class WaifuConfig(BaseModel):
     gateway: GatewayConfig = GatewayConfig()
     context: ContextConfig = ContextConfig()
+    memory: MemoryConfig = MemoryConfig()
     provider: ProviderConfig
     utility_provider: Optional[ProviderConfig] = None
 

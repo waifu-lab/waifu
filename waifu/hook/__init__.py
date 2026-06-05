@@ -1,8 +1,7 @@
 from typing import List
 
-from waifu_types import BaseHook, HookContext
-
 from waifu.logger import logger
+from waifu_types import BaseHook, HookContext
 
 
 class HookRegistry:
@@ -56,12 +55,22 @@ class HookPipeline:
         return ctx
 
 
-from .builtin import EmotionHook, InMemoryStore, LoggingHook, MemoryHook, RateLimitHook, TTSHook
+from .builtin import EmotionHook, LoggingHook, RateLimitHook, TTSHook
+from .memory import (
+    ContextualMemoryStore,
+    InMemoryStore,
+    MemoryHook,
+    MemoryStore,
+    RelationshipMemoryStore,
+)
 
 __all__ = [
     "HookRegistry",
     "HookPipeline",
     "RateLimitHook",
+    "MemoryStore",
+    "ContextualMemoryStore",
+    "RelationshipMemoryStore",
     "MemoryHook",
     "InMemoryStore",
     "EmotionHook",

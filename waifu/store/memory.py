@@ -184,10 +184,12 @@ class FileMemoryStore:
         memory_dir: Path,
         character_name: Optional[str] = None,
         max_recent: int = 20,
+        share_direct_memories: bool = True,
     ) -> None:
         self._memory_dir = memory_dir
         self._character = character_name
         self._max_recent = max_recent
+        self._share_direct_memories = share_direct_memories
 
     async def load(self, key: str) -> List[BaseMessage]:
         """回傳：舊對話摘要 system message + 近期原文"""
@@ -295,6 +297,9 @@ class FileMemoryStore:
 
         if key.startswith("ws:"):
             return self._memory_dir / "_sessions" / f"{safe}.md"
+
+        if ":dm:" in key and self._share_direct_memories:
+            return self._memory_dir / "_shared" / "direct" / f"{safe}.md"
 
         if self._character:
             if ":dm:" in key:

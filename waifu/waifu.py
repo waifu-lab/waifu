@@ -7,12 +7,13 @@ from typing import Any, Dict, Optional, cast
 from hai.providers import ProviderSTT, ProviderText, ProviderTTS, create_text_provider
 from waifu.agent import AgentRunner, ContextBuilder, UtilityAI
 from waifu.card import CardImporter, CardParser
-from waifu.config import ProviderConfig, VoiceConfig, WaifuConfig
+from waifu.config import MemoryConfig, ProviderConfig, VoiceConfig, WaifuConfig
 from waifu.cron import CronExecutor, CronScheduler
 from waifu.gateway import GatewayCore
 from waifu.heartbeat import HeartbeatManager
 from waifu.hook import HookPipeline, HookRegistry
-from waifu.hook.builtin import EmotionHook, LoggingHook, MemoryHook, TTSHook
+from waifu.hook.builtin import EmotionHook, LoggingHook, TTSHook
+from waifu.hook.memory import MemoryHook
 from waifu.logger import logger
 from waifu.mcp.manager import MCPManager
 from waifu.node import NodeManager
@@ -27,7 +28,7 @@ from waifu.service.plugin import PluginService
 from waifu.service.skill import SkillService
 from waifu.service.status import StatusService
 from waifu.skill import SkillPromptHook, SkillRegistry, make_skill_tool, scan_skills
-from waifu.store import AppPaths, CharacterManager, CronStore, Database, FileMemoryStore
+from waifu.store import AppPaths, CharacterManager, CronStore, Database, FileMemoryStore, HistoryTreeStore
 from waifu.store.conversation import ConversationStore
 from waifu.store.repositories import (
     AppConfigRepository,
@@ -87,6 +88,7 @@ def _config_seed(config: "WaifuConfig") -> dict:
 
     add_section("gateway", config.gateway.model_dump())
     add_section("context", config.context.model_dump(exclude={"soul_content"}, exclude_none=True))
+    add_section("memory", config.memory.model_dump(exclude_none=True))
     add_section("provider", config.provider.model_dump(exclude_none=True))
     if config.utility_provider is not None:
         add_section("utility_provider", config.utility_provider.model_dump(exclude_none=True))
@@ -147,6 +149,12 @@ def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService
             speed=config.tts.speed,
         )
     return VoiceService(stt=stt, tts=tts, lipsync_fps=config.lipsync_fps)
+
+
+def _resolve_memory_backend(config: MemoryConfig, *, has_character: bool) -> str:
+    if config.backend != "auto":
+        return config.backend
+    return "file" if has_character else "none"
 
 
 class Waifu:
@@ -287,11 +295,23 @@ class Waifu:
     def _register_builtin_hooks(self, config: WaifuConfig) -> None:
         """根據 config 自動掛載內建 hooks"""
         memory_store = None
-        if config.character:
+        backend = _resolve_memory_backend(config.memory, has_character=bool(config.character))
+        if backend == "file":
             memory_store = FileMemoryStore(
                 memory_dir=self._paths.memory_dir,
                 character_name=config.character,
                 max_recent=config.context.max_history_messages,
+                share_direct_memories=config.memory.file.share_direct_memories,
+            )
+        elif backend == "history_tree":
+            memory_store = HistoryTreeStore(
+                base_url=config.memory.history_tree.base_url,
+                timeout_s=config.memory.history_tree.timeout_s,
+                top_k=config.memory.history_tree.top_k,
+                rerank=config.memory.history_tree.rerank,
+                query_graph=config.memory.history_tree.query_graph,
+                ingest_graph=config.memory.history_tree.ingest_graph,
+                character_name=config.character,
             )
 
         memory_hook = MemoryHook(
