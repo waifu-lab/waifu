@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -7,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from waifu import Waifu, __version__
 from waifu.config import WaifuConfig
 from waifu.gateway.config import GatewayRuntimeConfig
+from waifu.logger import setup_logging
 from waifu.router import include_routers
 from waifu.service.gateway import GatewayConfigService
 from waifu.store.paths import AppPaths
@@ -18,6 +20,8 @@ _paths: Optional[AppPaths] = None
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    setup_logging(level=os.getenv("WAIFU_LOG_LEVEL", "INFO"))
+
     assert _config is not None, "_cli_app._config must be set before uvicorn starts"
     assert _gateway_config is not None, "_cli_app._gateway_config must be set before uvicorn starts"
     assert _paths is not None, "_cli_app._paths must be set before uvicorn starts"

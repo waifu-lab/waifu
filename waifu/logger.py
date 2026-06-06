@@ -7,13 +7,17 @@ from pathlib import Path
 from typing import Optional, Union
 
 from loguru import logger
+from rich.highlighter import NullHighlighter, ReprHighlighter
 from rich.logging import RichHandler
+from rich.text import Text
 
 cid: contextvars.ContextVar[str] = contextvars.ContextVar("cid", default="-")
+_MESSAGE_SPLIT = "__WAIFU_MESSAGE_SPLIT__"
 
 
 def _patch(record: dict) -> None:
     record["extra"].setdefault("cid", cid.get())
+    record["extra"].setdefault("logger_name", record["name"])
 
 
 class _InterceptHandler(logging.Handler):
@@ -30,9 +34,33 @@ class _InterceptHandler(logging.Handler):
             frame = frame.f_back
             depth += 1
 
-        logger.opt(depth=depth, exception=record.exc_info).log(
-            level, record.getMessage()
-        )
+        logger.bind(logger_name=record.name).opt(
+            depth=depth,
+            exception=record.exc_info,
+        ).log(level, record.getMessage())
+
+
+class _MessageOnlyRichHandler(RichHandler):
+    """Highlight only the message body while keeping the prefix untouched."""
+
+    _message_highlighter = ReprHighlighter()
+
+    def render_message(self, record: logging.LogRecord, message: str):
+        if _MESSAGE_SPLIT not in message:
+            return super().render_message(record, message)
+
+        prefix, _, body = message.partition(_MESSAGE_SPLIT)
+
+        if getattr(record, "markup", self.markup):
+            prefix_text = Text.from_markup(prefix)
+            body_text = Text.from_markup(body)
+        else:
+            prefix_text = Text(prefix)
+            body_text = Text(body)
+
+        body_text = self._message_highlighter(body_text)
+        prefix_text.append_text(body_text)
+        return prefix_text
 
 
 _configured = False
@@ -51,23 +79,29 @@ def setup_logging(
     logger.remove()
     logger.configure(patcher=_patch)
 
-    fmt = (
+    prefix_fmt = (
         "<green>{time:YYYY-MM-DD HH:mm:ss}</green> "
         "<level>{level: <8}</level> "
         "<cyan>[{extra[cid]}]</cyan> "
-        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - "
-        "<level>{message}</level>"
+        "<cyan>{extra[logger_name]}</cyan>:<dim>{function}:{line}</dim> - "
     )
+    console_fmt = f"{prefix_fmt}{_MESSAGE_SPLIT}{{message}}"
+    file_fmt = f"{prefix_fmt}<level>{{message}}</level>"
 
     logger.add(
-        RichHandler(
+        _MessageOnlyRichHandler(
             rich_tracebacks=rich_tracebacks,
             markup=False,
+            show_time=False,
+            show_level=False,
             show_path=False,
-            log_time_format="[%X]",
+            highlighter=NullHighlighter(),
+            keywords=[],
         ),
         level=level.upper(),
-        format="[{extra[cid]}] {name}:{function}:{line} - {message}",
+        format=console_fmt,
+        backtrace=rich_tracebacks,
+        diagnose=rich_tracebacks,
     )
 
     if log_file:
@@ -79,7 +113,7 @@ def setup_logging(
             retention="14 days",
             compression="zip",
             enqueue=True,
-            format=fmt,
+            format=file_fmt,
         )
 
     root = logging.getLogger()

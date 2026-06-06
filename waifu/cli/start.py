@@ -1,4 +1,5 @@
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import List, Union
@@ -22,6 +23,7 @@ def cmd_start(args: List[str]) -> None:
         ns.log_level = "debug"
 
     setup_logging(level=ns.log_level.upper())
+    os.environ["WAIFU_LOG_LEVEL"] = ns.log_level.upper()
 
     try:
         import uvicorn
@@ -47,6 +49,7 @@ def cmd_start(args: List[str]) -> None:
         port=port,
         reload=ns.reload,
         log_level=ns.log_level.lower(),
+        log_config=None,
     )
 
 
