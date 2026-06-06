@@ -65,6 +65,8 @@ class TTSConfig(BaseModel):
     voice: str = "nova"  # alloy / echo / fable / onyx / nova / shimmer
     response_format: str = "mp3"
     speed: float = 1.0
+    timeout_retries: int = 2
+    retry_backoff_s: float = 0.5
 
 
 class VoiceConfig(BaseModel):

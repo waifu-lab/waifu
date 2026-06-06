@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 from peewee import CharField, DateTimeField, ForeignKeyField, IntegerField, TextField
 
 from waifu.store.models import Conversation, DailyTokenUsage, Message, MessageAttachment
-from waifu_types import Attachment
+from waifu_types import Attachment, MessageParts
 
 
 def _parts_to_text(parts: List[Dict[str, Any]]) -> str:
@@ -35,6 +35,14 @@ def _safe_filename(title: str, id: str) -> str:
     slug = re.sub(r"[\s_]+", "-", slug)[:40]
     safe_id = re.sub(r'[<>:"/\\|?*]', "-", id)[:36]
     return f"{slug}-{safe_id}.md" if slug else f"{safe_id}.md"
+
+
+def _load_parts(raw: str) -> List[Dict[str, Any]]:
+    try:
+        parts = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return [{"type": "text", "text": raw}]
+    return parts if isinstance(parts, list) else [{"type": "text", "text": raw}]
 
 
 class ConversationStore:
@@ -226,6 +234,29 @@ class ConversationStore:
             )
         return result
 
+    def _load_runtime_attachments(self, message_id: str) -> List[Attachment]:
+        rows = list(MessageAttachment.select().where(MessageAttachment.message == message_id))
+        result: List[Attachment] = []
+        for row in rows:
+            data = b""
+            url = cast(Optional[str], row.url)
+            storage_path = cast(Optional[str], row.storage_path)
+            if storage_path and self._attachments_dir is not None:
+                full = self._attachments_dir / storage_path
+                if full.is_file():
+                    data = full.read_bytes()
+            if not data and not url:
+                continue
+            result.append(
+                Attachment(
+                    filename=cast(str, row.filename),
+                    content_type=cast(str, row.content_type),
+                    data=data,
+                    url=url,
+                )
+            )
+        return result
+
     def _upsert_daily_tokens(self, conversation_id: str, input_tokens: int, output_tokens: int) -> None:
         """Upsert 當日 token 彙總（per-conversation + 全域）"""
         today = datetime.now(timezone.utc).date()
@@ -335,11 +366,62 @@ class ConversationStore:
             {
                 "id": cast(str, m.id),
                 "role": cast(str, m.role),
-                "parts": json.loads(cast(str, m.content)),
+                "parts": _load_parts(cast(str, m.content)),
                 "attachments": self.attachments_for(cast(str, m.id)),
             }
             for m in self.get_messages(conversation_id, limit)
         ]
+
+    def get_llm_messages(self, conversation_id: str, limit: int = 100) -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
+        for msg in self.get_messages(conversation_id, limit):
+            parts = _load_parts(cast(str, msg.content))
+            role = cast(str, msg.role)
+            text_parts = [str(p.get("text", "")) for p in parts if p.get("type") == "text" and p.get("text")]
+            text = "\n".join(text_parts)
+
+            if role == "tool":
+                tool_result = next((p for p in parts if p.get("type") == "tool-result"), None)
+                result.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_result.get("toolCallId", "") if tool_result else "",
+                        "content": tool_result.get("result", "") if tool_result else text,
+                    }
+                )
+                continue
+
+            if role == "assistant":
+                tool_calls = []
+                for part in parts:
+                    part_type = str(part.get("type", ""))
+                    if not part_type.startswith("tool-"):
+                        continue
+                    args = part.get("args", {})
+                    tool_calls.append(
+                        {
+                            "id": part.get("toolCallId", ""),
+                            "type": "function",
+                            "function": {
+                                "name": part.get("toolName") or part_type[5:],
+                                "arguments": args if isinstance(args, str) else json.dumps(args, ensure_ascii=False),
+                            },
+                        }
+                    )
+                payload: Dict[str, Any] = {"role": "assistant", "content": text or None}
+                if tool_calls:
+                    payload["tool_calls"] = tool_calls
+                result.append(payload)
+                continue
+
+            if role == "user":
+                attachments = self._load_runtime_attachments(cast(str, msg.id))
+                content = MessageParts(content=text, attachments=attachments).to_user_message().content
+                result.append({"role": "user", "content": content})
+                continue
+
+            result.append({"role": role, "content": text})
+        return result
 
     def export_markdown(self, conversation_id: str, dest: Path) -> Path:
         """Write (or overwrite) a markdown file for the conversation.

@@ -59,7 +59,7 @@ _EMOTION_TAG_RE = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
 
 
 def _to_waifu_message(m: Any) -> BaseMessage:
-    d = m.model_dump(exclude_none=True)
+    d = m if isinstance(m, dict) else m.model_dump(exclude_none=True)
     role = d.get("role", "")
     if role == "user":
         raw = d.get("content", "")
@@ -153,7 +153,13 @@ def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService
             response_format=config.tts.response_format,
             speed=config.tts.speed,
         )
-    return VoiceService(stt=stt, tts=tts, lipsync_fps=config.lipsync_fps)
+    return VoiceService(
+        stt=stt,
+        tts=tts,
+        lipsync_fps=config.lipsync_fps,
+        tts_timeout_retries=config.tts.timeout_retries if config.tts else 2,
+        tts_retry_backoff_s=config.tts.retry_backoff_s if config.tts else 0.5,
+    )
 
 
 def _resolve_memory_backend(config: MemoryConfig, *, has_character: bool) -> str:
@@ -531,9 +537,12 @@ class Waifu:
             return command_response
 
         session = self._gateway.session_manager.get_or_create(request.conversation_id)
+        conversation = self._conversation_store.get(request.conversation_id)
+        if conversation is not None and not session.history:
+            self._restore_session_history(request.conversation_id, session)
 
         # Ensure the conversation row exists in DB
-        is_new_conversation = self._conversation_store.get(request.conversation_id) is None
+        is_new_conversation = conversation is None
         if is_new_conversation:
             self._conversation_store.create_with_id(
                 request.conversation_id,
@@ -673,6 +682,12 @@ class Waifu:
                 reply_fn(event=event)
         except Exception:
             logger.debug("title_update event could not be delivered (connection closed?)")
+
+    def _restore_session_history(self, conversation_id: str, session: Any) -> None:
+        history = self._conversation_store.get_llm_messages(conversation_id, limit=0)
+        if not history:
+            return
+        session.add_messages([_to_waifu_message(msg) for msg in history])
 
     @staticmethod
     def _build_response(request: IncomingRequest, content: str, ctx: HookContext) -> OutgoingResponse:
