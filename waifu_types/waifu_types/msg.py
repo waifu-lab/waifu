@@ -25,6 +25,10 @@ _SUPPORTED_FILE_TYPES = {
     "application/xml",
 }
 
+# Only PDF is accepted as a binary file block by the OpenAI API.
+# All other supported types are text-decodable and sent as text content.
+_FILE_BLOCK_TYPES = {"application/pdf"}
+
 
 def _to_data_url(att: Attachment) -> str:
     if att.url:
@@ -54,6 +58,8 @@ class MessageParts:
             parts.append({"type": "text", "text": self.content})
         for att in self.attachments:
             if att.content_type.startswith("image/"):
+                if not att.data and not att.url:
+                    continue
                 parts.append({
                     "type": "image_url",
                     "image_url": {"url": _to_data_url(att), "detail": "auto"},
@@ -61,10 +67,17 @@ class MessageParts:
             elif att.content_type in _SUPPORTED_FILE_TYPES:
                 if not att.data and not att.url:
                     continue
-                parts.append({
-                    "type": "file",
-                    "file": {"filename": att.filename, "file_data": _to_data_url(att)},
-                })
+                if att.content_type in _FILE_BLOCK_TYPES:
+                    parts.append({
+                        "type": "file",
+                        "file": {"filename": att.filename, "file_data": _to_data_url(att)},
+                    })
+                elif att.data:
+                    text_content = att.data.decode(errors="replace")
+                    parts.append({
+                        "type": "text",
+                        "text": f"[{att.filename}]\n{text_content}",
+                    })
         return UserMessage(content=parts)
 
     def as_request_kwargs(self) -> Dict[str, Any]:

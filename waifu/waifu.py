@@ -590,11 +590,13 @@ class Waifu:
         ctx.response = final_content
         ctx.trace = agent_result.trace
 
-        # agent_result.messages = [history..., user_msg, new_msgs...]
-        # Start from history_len to include user_msg in session.history.
+        # context_manager.history = [full_history..., user_msg, new_agent_msgs...]
+        # Use context_manager.history (not agent_result.messages) so that context
+        # truncation cannot cause user_msg to be dropped: agent_result.messages is
+        # based on the *truncated* initial_messages, so slicing by history_len
+        # would skip user_msg when len(ctx.messages) >= max_history_messages.
         # _persist_new_messages already skips role=="user" so no double-save.
-        new_shuvi_msgs = agent_result.messages[history_len:]
-        new_waifu_msgs = [_to_waifu_message(m) for m in new_shuvi_msgs]
+        new_waifu_msgs = [_to_waifu_message(m) for m in context_manager.history[history_len:]]
 
         ctx.new_messages = new_waifu_msgs
         ctx = await self._hook_pipeline.run_mid(ctx)

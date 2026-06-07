@@ -174,7 +174,7 @@ class HistoryTreeStore:
         self._ingest_graph = ingest_graph
         self._character_name = character_name
 
-    async def load(self, _key: str) -> List[BaseMessage]:
+    async def load(self, key: str) -> List[BaseMessage]:  # noqa: ARG002
         return []
 
     async def load_for_context(self, ctx: HookContext, key: str) -> List[BaseMessage]:
@@ -222,7 +222,7 @@ class HistoryTreeStore:
             )
         ]
 
-    async def save(self, _key: str, _messages: List[BaseMessage]) -> None:
+    async def save(self, key: str, messages: List[BaseMessage]) -> None:  # noqa: ARG002
         return None
 
     async def save_for_context(self, ctx: HookContext, key: str, _messages: List[BaseMessage]) -> None:

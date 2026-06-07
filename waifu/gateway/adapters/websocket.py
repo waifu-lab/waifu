@@ -123,6 +123,14 @@ class WebSocketAdapter(BaseGatewayAdapter):
             return
 
         attachments = _parse_attachments(data)
+        if attachments:
+            logger.debug(
+                "WebSocket attachments: {}",
+                [
+                    {"filename": a.filename, "content_type": a.content_type, "data_len": len(a.data), "url": a.url}
+                    for a in attachments
+                ],
+            )
         reply_fn = _make_ws_reply_fn(websocket, request_id)
 
         request = IncomingRequest(
