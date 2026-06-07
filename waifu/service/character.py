@@ -46,11 +46,20 @@ class CharacterService:
     def activate(self, id: str) -> None:
         self._chars.set_active(id)
 
+    def clear_active(self) -> None:
+        self._chars.clear_active()
+
     def get_active(self) -> Optional[Character]:
         return self._chars.get_active()
 
     def list_all(self) -> List[Character]:
         return self._chars.list_all()
+
+    def list_available_characters(self) -> List[str]:
+        names = {char.name for char in self._chars.list_all()}
+        if self._manager is not None:
+            names.update(self._manager.list_characters())
+        return sorted(names)
 
     def get(self, id: str) -> Optional[Character]:
         return self._chars.get(id)
@@ -79,6 +88,9 @@ class CharacterService:
         card = importer.load(Path(path))
         return self._materialize_card(card, manager, overwrite=overwrite)
 
+    def sync_card(self, path: str | Path) -> CardImportResult:
+        return self.import_card(path, overwrite=True)
+
     def import_all_cards(self, *, overwrite: bool = False) -> tuple[list[CardImportResult], list[tuple[Path, Exception]]]:
         manager = self._require_manager()
         importer = self._require_importer()
@@ -91,6 +103,53 @@ class CharacterService:
             except Exception as exc:
                 errors.append((path, exc))
         return results, errors
+
+    def sync_all_cards(self) -> tuple[list[CardImportResult], list[tuple[Path, Exception]]]:
+        return self.import_all_cards(overwrite=True)
+
+    def select_character(self, ref: str) -> Character:
+        manager = self._require_manager()
+        name = self.resolve_character_name(ref)
+        row = self._chars.get_by_name(name)
+        char_dir = manager.ensure_character_dir(name)
+        soul_path = char_dir / "soul.md"
+        avatar_path = manager.get_avatar(name)
+        live2d_dir = char_dir / "live2d"
+
+        if row is None:
+            if not soul_path.exists():
+                raise ValueError(f"Character '{name}' does not have a soul file yet.")
+            row = self._chars.create(name, str(soul_path), str(avatar_path) if avatar_path else None, str(live2d_dir))
+        else:
+            fields = {"live2d_dir": str(live2d_dir)}
+            if soul_path.exists():
+                fields["soul_path"] = str(soul_path)
+            if avatar_path is not None:
+                fields["avatar_path"] = str(avatar_path)
+            self._chars.update(str(row.id), **fields)
+            row = self._chars.get(str(row.id))
+
+        assert row is not None
+        self._chars.set_active(str(row.id))
+        return row
+
+    def resolve_character_name(self, ref: str) -> str:
+        raw = ref.strip()
+        if not raw:
+            raise ValueError("Character name is required.")
+
+        row = self._chars.get(raw)
+        if row is not None:
+            return row.name
+
+        row = self._chars.get_by_name(raw)
+        if row is not None:
+            return row.name
+
+        if self._manager is not None and raw in self._manager.list_characters():
+            return raw
+
+        raise ValueError(f"Character '{ref}' not found.")
 
     def _materialize_card(
         self,

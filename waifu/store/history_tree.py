@@ -1,14 +1,55 @@
 from __future__ import annotations
 
-import tempfile
+import json
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from waifu.logger import logger
 from waifu_types import AssistantMessage, BaseMessage, HookContext, SystemMessage
 
 _MEMORY_MARKER = "[history_tree_memory]"
+
+
+def _dump_for_log(payload: Any) -> str:
+    try:
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+    except TypeError:
+        return str(payload)
+
+
+def _safe_document_name(key: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in key).strip("._")
+    if not cleaned:
+        cleaned = "document"
+    if not cleaned.endswith(".md"):
+        cleaned = f"{cleaned}.md"
+    return cleaned
+
+
+def _describe_request_error(exc: Exception) -> str:
+    try:
+        import httpx
+    except ImportError:  # pragma: no cover
+        httpx = None  # type: ignore[assignment]
+
+    if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
+        response = exc.response
+        body = response.text.strip().replace("\n", " ")
+        if len(body) > 240:
+            body = body[:237] + "..."
+        suffix = f"; body={body}" if body else ""
+        return f"{type(exc).__name__}: {response.status_code} {response.reason_phrase}{suffix}"
+
+    if httpx is not None and isinstance(exc, httpx.TimeoutException):
+        request = getattr(exc, "request", None)
+        method = getattr(request, "method", "request")
+        url = getattr(request, "url", "?")
+        return f"{type(exc).__name__}: timed out calling {method} {url}"
+
+    detail = str(exc).strip()
+    if detail:
+        return f"{type(exc).__name__}: {detail}"
+    return type(exc).__name__
 
 
 def _message_text(message: BaseMessage) -> str:
@@ -88,14 +129,9 @@ def _render_turn_document(
 ) -> str:
     now = datetime.now(timezone.utc).isoformat()
     lines = [
-        "# Conversation Memory",
-        "",
         "## Metadata",
         f"- memory_key: {memory_key}",
         f"- recorded_at: {now}",
-        f"- source: {ctx.request.source}",
-        f"- mode: {ctx.request.mode.value}",
-        f"- conversation_id: {ctx.request.conversation_id}",
         f"- user_id: {ctx.request.sender.user_id}",
         f"- display_name: {ctx.request.sender.display_name}",
     ]
@@ -148,20 +184,28 @@ class HistoryTreeStore:
         if not query:
             return []
 
+        query_payload = {
+            "query": query,
+            "top_k": self._top_k,
+            "rerank": self._rerank,
+            "graph": self._query_graph,
+        }
+        logger.debug(
+            "HistoryTree query request for key {} -> POST {}/query\n{}",
+            key,
+            self._base_url,
+            _dump_for_log(query_payload),
+        )
+
         try:
             async with httpx.AsyncClient(timeout=self._timeout_s) as client:
                 resp = await client.post(
                     f"{self._base_url}/query",
-                    json={
-                        "query": query,
-                        "top_k": self._top_k,
-                        "rerank": self._rerank,
-                        "graph": self._query_graph,
-                    },
+                    json=query_payload,
                 )
                 resp.raise_for_status()
         except Exception as exc:
-            logger.warning("HistoryTree query failed for key {}: {}", key, exc)
+            logger.warning("HistoryTree query failed for key {}: {}", key, _describe_request_error(exc))
             return []
 
         summary = _render_query_summary(resp.json())
@@ -197,29 +241,37 @@ class HistoryTreeStore:
             assistant_messages=assistant_messages,
         )
 
-        tmp_path: Optional[Path] = None
         try:
-            with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as tmp:
-                tmp.write(document)
-                tmp_path = Path(tmp.name)
+            ingest_payload = {
+                "text": document,
+                "name": _safe_document_name(key),
+                "graph": self._ingest_graph,
+            }
+            logger.debug(
+                "HistoryTree ingest request for key {} -> POST {}/documents\npayload={}\ndocument=\n{}",
+                key,
+                self._base_url,
+                _dump_for_log(ingest_payload),
+                document,
+            )
 
             async with httpx.AsyncClient(timeout=self._timeout_s) as client:
                 resp = await client.post(
                     f"{self._base_url}/documents",
-                    json={"file_path": str(tmp_path), "graph": self._ingest_graph},
+                    json=ingest_payload,
                 )
                 resp.raise_for_status()
         except Exception as exc:
-            logger.warning("HistoryTree ingest failed for key {}: {}", key, exc)
-        finally:
-            if tmp_path is not None:
-                try:
-                    tmp_path.unlink(missing_ok=True)
-                except Exception:
-                    logger.debug("Failed to remove temporary HistoryTree file {}", tmp_path)
+            logger.warning(
+                "HistoryTree ingest failed for key {} (graph={}, name={}): {}",
+                key,
+                self._ingest_graph,
+                ingest_payload.get("name"),
+                _describe_request_error(exc),
+            )
 
     async def clear(self, key: str) -> None:
-        logger.info("HistoryTreeStore.clear({}) is a no-op; archive semantics are not implemented yet", key)
+        logger.debug("HistoryTreeStore.clear({}) is a no-op; archive semantics are not implemented yet", key)
 
 
 __all__ = ["HistoryTreeStore"]

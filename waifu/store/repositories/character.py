@@ -26,6 +26,9 @@ class CharacterRepository:
         Character.update(active=False).execute()  # deactivate all
         Character.update(active=True).where(Character.id == id).execute()
 
+    def clear_active(self) -> None:
+        Character.update(active=False).execute()
+
     def update(self, id: str, **fields) -> None:
         Character.update(**fields).where(Character.id == id).execute()
 

@@ -11,7 +11,7 @@ _COMMANDS = [
     ("start", None, "Start the waifu server"),
     ("version", None, "Show version"),
     ("config", ["get", "set", "list"], "Read or update settings"),
-    ("character", ["import-card", "import-cards"], "Import character cards"),
+    ("character", ["list", "use", "import-card", "import-cards", "sync-card", "sync-cards"], "Manage characters and cards"),
     ("conversations", None, "List recent conversations"),
     ("conversation", ["create", "delete", "search", "compact", "messages"], "Manage conversations"),
     ("skill", ["list", "search", "find", "install", "update", "uninstall"], "Manage skills"),

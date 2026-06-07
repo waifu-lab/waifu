@@ -1,3 +1,5 @@
+import ast
+import json
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -9,10 +11,54 @@ from waifu_types import AssistantMessage, BaseMessage, GenericMessage, SystemMes
 _SUMMARY_MARKER = "[memory_summary]"
 
 
+def _coerce_user_content(raw: Any) -> List[Dict[str, Any]]:
+    if isinstance(raw, list):
+        return [part for part in raw if isinstance(part, dict)]
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        for loader in (json.loads, ast.literal_eval):
+            try:
+                parsed = loader(raw)
+            except (ValueError, SyntaxError, TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(parsed, list):
+                return [part for part in parsed if isinstance(part, dict)]
+        return [{"type": "text", "text": raw}]
+    return [{"type": "text", "text": str(raw)}]
+
+
+def _content_to_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        chunks: List[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = str(part.get("text", "")).strip()
+                if text:
+                    chunks.append(text)
+        if chunks:
+            return "\n".join(chunks)
+        return json.dumps(content, ensure_ascii=False)
+    if content is None:
+        return ""
+    return str(content)
+
+
+def _serialize_message_content(role: str, content: Any) -> str:
+    if role == "user":
+        return json.dumps(_coerce_user_content(content), ensure_ascii=False)
+    return _content_to_text(content)
+
+
 def _dict_to_message(d: Dict[str, Any]) -> BaseMessage:
     role = d.get("role", "")
     if role == "user":
-        return UserMessage(content=d.get("content", ""))
+        return UserMessage(content=_coerce_user_content(d.get("content", "")))
     if role == "assistant":
         return AssistantMessage(content=d.get("content"), tool_calls=d.get("tool_calls"))
     if role == "tool":
@@ -50,15 +96,15 @@ def _messages_to_text(messages: List[Dict[str, Any]]) -> str:
     lines: List[str] = []
     for msg in messages:
         role = msg.get("role", "unknown")
-        content = msg.get("content", "")
+        content = _content_to_text(msg.get("content", ""))
         lines.append(f"[{role}] {content}")
     return "\n".join(lines)
 
 
-def _format_message_md(role: str, content: str) -> str:
+def _format_message_md(role: str, content: Any) -> str:
     """將單則訊息格式化為 markdown"""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return f"**{role}** · {ts}\n{content}"
+    return f"**{role}** · {ts}\n{_serialize_message_content(role, content)}"
 
 
 def _split_sections(lines: List[str]) -> Dict[str, str]:
@@ -93,7 +139,8 @@ def _parse_recent_messages(sections: Dict[str, str]) -> List[Dict[str, Any]]:
         role = m.group(1).strip()
         content = m.group(3).strip()
         if content:
-            messages.append({"role": role, "content": content})
+            parsed_content: Any = _coerce_user_content(content) if role == "user" else content
+            messages.append({"role": role, "content": parsed_content})
     return messages
 
 

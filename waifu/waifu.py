@@ -309,6 +309,14 @@ class Waifu:
         """根據 config 自動掛載內建 hooks"""
         memory_store = None
         backend = _resolve_memory_backend(config.memory, has_character=bool(config.character))
+        logger.info(
+            "Memory backend resolved to '{}' (configured='{}', character_configured={})",
+            backend,
+            config.memory.backend,
+            bool(config.character),
+        )
+        if config.memory.backend == "auto" and backend == "file":
+            logger.info("Auto memory backend selected 'file'; set memory.backend='history_tree' to enable HistoryTree")
         if backend == "file":
             memory_store = FileMemoryStore(
                 memory_dir=self._paths.memory_dir,

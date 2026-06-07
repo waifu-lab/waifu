@@ -12,7 +12,9 @@ from .lipsync import build_lipsync_events
 if TYPE_CHECKING:
     from hai.providers.providers import ProviderSTT, ProviderTTS
 
-_SENTENCE_SPLIT = re.compile(r"(?<=[。！？!?\.…])\s*")
+_SENTENCE_SPLIT = re.compile(
+    r"(?<=[。！？!?…])\s+|(?<=[。！？!?…])(?=\S)|(?<=\.)\s+(?=(?:['\"([{<]|[A-Z0-9\u4e00-\u9fff]))"
+)
 _EMOTION_TAG = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
 
 

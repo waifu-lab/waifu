@@ -84,9 +84,6 @@ file_search_tool = Tool(
 )
 
 
-# ── file_edit ────────────────────────────────────────────────────────────────
-
-
 def _file_edit(path: str, old_str: str, new_str: str) -> str:
     p = Path(path)
     if not p.exists():
@@ -124,9 +121,6 @@ file_edit_tool = Tool(
     },
     func=_file_edit,
 )
-
-
-# ── file_patch ───────────────────────────────────────────────────────────────
 
 
 def _apply_patch(original: str, patch_text: str) -> str:

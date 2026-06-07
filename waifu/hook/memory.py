@@ -46,9 +46,12 @@ class MemoryHook(BaseHook):
 
     async def pre(self, ctx: HookContext) -> HookContext:
         cid = ctx.request.conversation_id
-        history = await self._load_history(ctx, cid)
-        if history:
-            ctx.messages = list(history)
+        memory_messages = await self._load_history(ctx, cid)
+        if memory_messages:
+            if isinstance(self._store, ContextualMemoryStore):
+                ctx.messages = [*memory_messages, *ctx.messages]
+            else:
+                ctx.messages = list(memory_messages)
 
         if isinstance(self._store, RelationshipMemoryStore):
             await self._inject_relationship(ctx, self._store)
