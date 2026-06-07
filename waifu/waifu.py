@@ -75,7 +75,7 @@ def _to_waifu_message(m: Any) -> BaseMessage:
 
 
 def _config_seed(config: "WaifuConfig") -> dict:
-    """Flatten WaifuConfig into dotted key/value pairs for DB seeding."""
+    """Flatten WaifuConfig into dotted key/value pairs for DB sync."""
     entries: dict = {}
 
     def add_section(prefix: str, data: dict) -> None:
@@ -256,8 +256,8 @@ class Waifu:
         self._character_repo = CharacterRepository()
         self._relationship_repo = RelationshipRepository()
 
-        # Seed initial config into DB (only if keys don't already exist)
-        self._config_repo.seed_if_absent(_config_seed(config))
+        # config.toml is the source of truth; mirror its snapshot into DB.
+        self._config_repo.replace_all(_config_seed(config))
 
         self._card_parser = CardParser()
         self._card_importer = CardImporter(cards_dir=self._paths.cards_dir, parser=self._card_parser)
@@ -402,11 +402,11 @@ class Waifu:
         return self
 
     async def start(self) -> None:
-        """啟動所有已掛載的 Adapter，並從 DB 恢復持久化設定"""
+        """啟動所有已掛載的 Adapter，並恢復非 config 的持久化狀態"""
         self._started_at = time.time()
         self._collect_capabilities()
         self._import_cards_on_startup()
-        await self._restore_from_db()
+        await self._restore_persistent_state()
         await self._cron_scheduler.start()
         if not self._localmode:
             await self._gateway.start()
@@ -436,12 +436,8 @@ class Waifu:
         for path, exc in errors:
             logger.warning("Failed to import card {}: {}", path, exc)
 
-    async def _restore_from_db(self) -> None:
-        """從 DB 恢復所有持久化設定到 runtime"""
-
-        for key, value in self._config_service.get_all().items():
-            self._config_service.set(key, value)
-
+    async def _restore_persistent_state(self) -> None:
+        """恢復非 config 的持久化狀態。config.toml 已在初始化時同步到 DB。"""
         await self._mcp_service.load_all()
 
         for row in self._plugin_repo.list_enabled():
