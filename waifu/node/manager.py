@@ -1,7 +1,8 @@
+import base64
 import json
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Union
 
-from hai.tool import Tool
+from hai.tool import ImageResult, Tool
 
 if TYPE_CHECKING:
     from waifu.gateway.adapters.waifu_node import NodeSession, WaifuNodeAdapter
@@ -72,8 +73,15 @@ class NodeManager:
     @staticmethod
     def _build_tool(tool_name: str, action: str, schema: Dict[str, Any], session: "NodeSession") -> Tool:
         def make_func(s: "NodeSession", act: str):
-            async def _call(**kwargs: Any) -> str:
+            async def _call(**kwargs: Any) -> Union[str, ImageResult]:
                 data = await s.invoke(act, kwargs)
+                if isinstance(data, dict) and data.get("__type") == "image":
+                    raw = base64.b64decode(data["bytes"])
+                    return ImageResult(
+                        data=raw,
+                        media_type=data.get("media_type", "image/png"),
+                        description=data.get("description", ""),
+                    )
                 if isinstance(data, str):
                     return data
                 return json.dumps(data, ensure_ascii=False)
