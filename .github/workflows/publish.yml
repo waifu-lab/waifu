@@ -7,7 +7,7 @@ on:
 
 jobs:
   publish-main:
-    name: Publish waifu-ai
+    name: Publish waifucore
     runs-on: ubuntu-latest
     permissions:
       id-token: write
@@ -19,7 +19,7 @@ jobs:
           enable-cache: true
 
       - name: Build waifu-ai
-        run: uv build --package waifu
+        run: uv build --package waifucore
 
       - name: Publish waifu-ai
         uses: pypa/gh-action-pypi-publish@release/v1
@@ -39,7 +39,7 @@ jobs:
           enable-cache: true
 
       - name: Build waifu_sdk
-        run: uv build --package waifu_sdk
+        run: uv build --package waifu_sdk --wheel
 
       - name: Publish waifu_sdk
         uses: pypa/gh-action-pypi-publish@release/v1

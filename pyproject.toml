@@ -1,5 +1,5 @@
 [project]
-name = "waifu-ai"
+name = "waifucore"
 version = "0.1.0"
 description = ""
 authors = [{ name = "phillychi3", email = "phillychi3@gmail.com" }]
