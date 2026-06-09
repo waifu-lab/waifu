@@ -49,6 +49,12 @@ waifu = "waifu.cli:main"
 asyncio_mode = "auto"
 pythonpath = [".", "waifu_types", "waifu_sdk"]
 testpaths = ["test"]
+markers = [
+    "unit: pure unit tests, no I/O or external deps",
+    "offline: integration tests that use mocks/fakes — no LLM API calls",
+    "online: integration tests that require a real LLM API (skipped if config.toml missing)",
+]
+tmp_path_retention_policy = "none"
 
 [tool.ruff]
 lint.select = ["ASYNC", "ARG", "B", "C", "C4", "E", "F", "Q", "W", "I"]
