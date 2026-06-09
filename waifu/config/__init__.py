@@ -69,11 +69,33 @@ class TTSConfig(BaseModel):
     retry_backoff_s: float = 0.1
 
 
+class GPTSoVITSTTSConfig(BaseModel):
+    """語音合成設定（GPT-SoVITS local server）"""
+
+    base_url: str = "http://127.0.0.1:9880"
+    ref_audio_path: str = ""
+    prompt_text: str = ""
+    prompt_lang: str = "zh"
+    text_lang: str = "zh"
+    text_split_method: str = "cut5"
+    batch_size: int = 1
+    speed_factor: float = 1.0
+    streaming_mode: int = 0  # 0=停用; 1=最佳品質; 2=中; 3=最快
+    top_k: int = 15
+    top_p: float = 1.0
+    temperature: float = 1.0
+    timeout: float = 60.0
+    timeout_retries: int = 1
+    retry_backoff_s: float = 0.1
+
+
 class VoiceConfig(BaseModel):
     """語音功能設定（STT + TTS，皆可選）"""
 
     stt: Optional[STTConfig] = None
+    tts_backend: Literal["openai", "gptsovits"] = "openai"
     tts: Optional[TTSConfig] = None
+    gptsovits_tts: Optional[GPTSoVITSTTSConfig] = None
     lipsync_fps: int = 20  # 口型 viseme 取樣幀率
 
 

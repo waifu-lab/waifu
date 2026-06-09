@@ -135,6 +135,8 @@ def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService
         return None
     stt = None
     tts = None
+    tts_timeout_retries = 2
+    tts_retry_backoff_s = 0.5
     if config.stt:
         stt = ProviderSTT(
             name="waifu-stt",
@@ -144,7 +146,29 @@ def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService
             language=config.stt.language,
             temperature=config.stt.temperature,
         )
-    if config.tts:
+    if config.tts_backend == "gptsovits":
+        if config.gptsovits_tts:
+            from hai.providers.gptsovits import GPTSoVITSTTS
+
+            c = config.gptsovits_tts
+            tts = GPTSoVITSTTS(
+                base_url=c.base_url,
+                ref_audio_path=c.ref_audio_path,
+                prompt_text=c.prompt_text,
+                prompt_lang=c.prompt_lang,
+                text_lang=c.text_lang,
+                text_split_method=c.text_split_method,
+                batch_size=c.batch_size,
+                speed_factor=c.speed_factor,
+                streaming_mode=c.streaming_mode,
+                top_k=c.top_k,
+                top_p=c.top_p,
+                temperature=c.temperature,
+                timeout=c.timeout,
+            )
+            tts_timeout_retries = c.timeout_retries
+            tts_retry_backoff_s = c.retry_backoff_s
+    elif config.tts:
         tts = ProviderTTS(
             name="waifu-tts",
             api_key=config.tts.api_key,
@@ -154,12 +178,14 @@ def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService
             response_format=config.tts.response_format,
             speed=config.tts.speed,
         )
+        tts_timeout_retries = config.tts.timeout_retries
+        tts_retry_backoff_s = config.tts.retry_backoff_s
     return VoiceService(
         stt=stt,
         tts=tts,
         lipsync_fps=config.lipsync_fps,
-        tts_timeout_retries=config.tts.timeout_retries if config.tts else 2,
-        tts_retry_backoff_s=config.tts.retry_backoff_s if config.tts else 0.5,
+        tts_timeout_retries=tts_timeout_retries,
+        tts_retry_backoff_s=tts_retry_backoff_s,
     )
 
 

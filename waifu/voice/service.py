@@ -72,6 +72,7 @@ class VoiceService:
         async for chunk in self._tts.synthesize_stream(text, chunk_size=chunk_size):
             yield chunk
 
+    # TODO: 有點醜，也沒有用到stream
     async def synthesize_sentences(self, text: str, need_lipsync: bool = False) -> AsyncIterator["SynthesisResult"]:
         """切句後並行合成，依原順序 yield SynthesisResult。"""
         if self._tts is None:
