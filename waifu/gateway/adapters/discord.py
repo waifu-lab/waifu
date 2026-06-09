@@ -269,7 +269,9 @@ def _discord_group_conversation_id(channel_id: Any, user_id: Any, *, group_sessi
 def _make_discord_interaction_reply_fn(interaction: Any):
     buffer: list[str] = []
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_) -> None:
+        if event is not None:
+            return
         if chunk is not None:
             buffer.append(chunk)
             return
@@ -298,8 +300,10 @@ def _make_discord_reply_fn(message: object, stream_edit: bool = True):
     sent_message = None
     buffer: list[str] = []
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_) -> None:
         nonlocal sent_message, buffer
+        if event is not None:
+            return
 
         if chunk is not None and stream_edit:
             buffer.append(chunk)

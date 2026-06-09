@@ -63,6 +63,11 @@ class _MessageOnlyRichHandler(RichHandler):
         return prefix_text
 
 
+class _SuppressTelegramHeartbeat(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "getUpdates" not in record.getMessage()
+
+
 _configured = False
 
 
@@ -123,6 +128,8 @@ def setup_logging(
         lg = logging.getLogger(name)
         lg.handlers = []
         lg.propagate = True
+
+    logging.getLogger("httpx").addFilter(_SuppressTelegramHeartbeat())
 
     _configured = True
 

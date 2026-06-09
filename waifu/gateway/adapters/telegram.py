@@ -236,8 +236,10 @@ def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
     sent_message = None
     buffer: list[str] = []
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None) -> None:
+    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_) -> None:
         nonlocal sent_message, buffer
+        if event is not None:
+            return
 
         if chunk is not None and stream_edit:
             buffer.append(chunk)
