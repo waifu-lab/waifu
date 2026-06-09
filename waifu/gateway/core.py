@@ -24,7 +24,6 @@ class GatewayCore:
         return self
 
     async def mount_adapter(self, adapter: BaseGatewayAdapter) -> None:
-        """掛載 adapter；若 gateway 已啟動則立即 start，否則等 start() 時一併啟動"""
         self._adapters.append(adapter)
         if self._started:
             await adapter.start(self)

@@ -15,13 +15,6 @@ from waifu.logger import logger
 
 
 class HTTPAdapter(BaseGatewayAdapter):
-    """
-    FastAPI REST Adapter — SESSION / DIRECT 模式，支援 SSE streaming
-
-    每個請求建立一個 asyncio.Queue，agent 透過 reply_fn 寫入 chunks，
-    StreamingResponse 讀取 queue 逐字回傳
-    """
-
     name = "http"
 
     @classmethod

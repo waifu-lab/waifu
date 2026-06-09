@@ -196,7 +196,6 @@ async def _telegram_attachments(msg: object, context: object) -> list[Attachment
     attachments: list[Attachment] = []
     try:
         if msg.photo:  # type: ignore[attr-defined]
-            # 選最大尺寸（最後一個）
             largest = msg.photo[-1]  # type: ignore[attr-defined]
             tg_file = await context.bot.get_file(largest.file_id)  # type: ignore[attr-defined]
             data = bytes(await tg_file.download_as_bytearray())

@@ -14,11 +14,8 @@ from waifu.logger import logger
 
 class StdioMCPAdapter(BaseMCPAdapter):
     """
-    透過 stdio 與 MCP Server 溝通（JSON-RPC over stdin/stdout）
-
-    用法：
-        StdioMCPAdapter(["npx", "-y", "@modelcontextprotocol/server-filesystem", "."])
-        StdioMCPAdapter(["python", "-m", "mcp_server_sqlite", "--db", "data.db"])
+    StdioMCPAdapter(["npx", "-y", "@modelcontextprotocol/server-filesystem", "."])
+    StdioMCPAdapter(["python", "-m", "mcp_server_sqlite", "--db", "data.db"])
     """
 
     def __init__(self, cmd: List[str], env: Optional[Dict[str, str]] = None) -> None:

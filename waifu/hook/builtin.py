@@ -9,6 +9,7 @@ from waifu_types import BaseHook, HookContext, SystemPromptLayers
 if TYPE_CHECKING:
     from waifu.voice.service import VoiceService
 
+
 class RateLimitHook(BaseHook):
     """
     per-conversation 滑動視窗限流
@@ -17,13 +18,13 @@ class RateLimitHook(BaseHook):
     """
 
     name = "rate_limit"
-    priority = 0  # 最早執行，避免浪費後續運算
+    priority = 0
 
     def __init__(self, max_rpm: int = 60, message: str = "請求太頻繁，請稍後再試") -> None:
         self._max_rpm = max_rpm
         self._window = 60.0
         self._message = message
-        # conversation_id → [timestamp, ...]
+
         self._records: Dict[str, List[float]] = defaultdict(list)
 
     async def pre(self, ctx: HookContext) -> HookContext:
@@ -31,7 +32,6 @@ class RateLimitHook(BaseHook):
         now = time.monotonic()
         window_start = now - self._window
 
-        # 清除視窗外的舊記錄
         self._records[cid] = [t for t in self._records[cid] if t > window_start]
 
         if len(self._records[cid]) >= self._max_rpm:
@@ -42,6 +42,7 @@ class RateLimitHook(BaseHook):
             self._records[cid].append(now)
 
         return ctx
+
 
 # 支援的情緒關鍵字映射（可在子類覆寫）
 _DEFAULT_EMOTION_MAP: Dict[str, str] = {

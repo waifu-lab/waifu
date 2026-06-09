@@ -54,7 +54,7 @@ class NodeSession:
     skills_dir: Optional[str]
     installed_skills: List[Dict[str, Any]]
     caps: Set[str]
-    tools: List[Dict[str, Any]]          # node_hello 帶入的原始 tool schema
+    tools: List[Dict[str, Any]]  # node_hello 帶入的原始 tool schema
 
     _ws: "WebSocket" = field(repr=False)
     _invoke_timeout: float = field(repr=False)
@@ -62,16 +62,10 @@ class NodeSession:
     _tool_executor: Optional[ToolExecutor] = field(default=None, repr=False)
 
     # request_id → Future  (node_invoke)
-    _pending: Dict[str, "asyncio.Future[Dict[str, Any]]"] = field(
-        default_factory=dict, repr=False
-    )
+    _pending: Dict[str, "asyncio.Future[Dict[str, Any]]"] = field(default_factory=dict, repr=False)
     # skill_id → Future  (node_skill_sync)
-    _skill_pending: Dict[str, "asyncio.Future[Dict[str, Any]]"] = field(
-        default_factory=dict, repr=False
-    )
+    _skill_pending: Dict[str, "asyncio.Future[Dict[str, Any]]"] = field(default_factory=dict, repr=False)
     _ping_task: Optional[asyncio.Task] = field(default=None, repr=False)
-
-    # ── 公開操作 ──────────────────────────────────────────────────────────────
 
     async def invoke(self, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -87,17 +81,17 @@ class NodeSession:
         self._pending[request_id] = fut
 
         try:
-            await self._ws.send_json({
-                "type": "node_invoke",
-                "request_id": request_id,
-                "action": action,
-                "params": params,
-            })
+            await self._ws.send_json(
+                {
+                    "type": "node_invoke",
+                    "request_id": request_id,
+                    "action": action,
+                    "params": params,
+                }
+            )
             result = await asyncio.wait_for(asyncio.shield(fut), timeout=self._invoke_timeout)
         except asyncio.TimeoutError:
-            raise TimeoutError(
-                f"node {self.node_id!r} did not respond to {action!r} within {self._invoke_timeout}s"
-            )
+            raise TimeoutError(f"node {self.node_id!r} did not respond to {action!r} within {self._invoke_timeout}s")
         finally:
             self._pending.pop(request_id, None)
 
@@ -139,18 +133,18 @@ class NodeSession:
         self._skill_pending[skill_id] = fut
 
         try:
-            await self._ws.send_json({
-                "type": "node_skill_sync",
-                "skill_id": skill_id,
-                "version": version,
-                "base_url": base_url,
-                "files": files,
-            })
+            await self._ws.send_json(
+                {
+                    "type": "node_skill_sync",
+                    "skill_id": skill_id,
+                    "version": version,
+                    "base_url": base_url,
+                    "files": files,
+                }
+            )
             result = await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s)
         except asyncio.TimeoutError:
-            raise TimeoutError(
-                f"node {self.node_id!r} did not complete skill sync {skill_id!r} within {timeout_s}s"
-            )
+            raise TimeoutError(f"node {self.node_id!r} did not complete skill sync {skill_id!r} within {timeout_s}s")
         finally:
             self._skill_pending.pop(skill_id, None)
 
@@ -160,8 +154,6 @@ class NodeSession:
                 code=result.get("code", "UNKNOWN"),
                 message=result.get("message", "unknown error"),
             )
-
-    # ── 內部 ──────────────────────────────────────────────────────────────────
 
     def dispatch(self, msg: Dict[str, Any]) -> bool:
         """處理單一訊息，回傳 False 表示應結束迴圈。"""
@@ -197,38 +189,46 @@ class NodeSession:
         params = msg.get("params", {})
 
         if self._tool_executor is None:
-            await self._ws.send_json({
-                "type": "node_tool_result",
-                "request_id": request_id,
-                "ok": False,
-                "error": {"code": "NOT_SUPPORTED", "message": "tool executor not configured"},
-            })
+            await self._ws.send_json(
+                {
+                    "type": "node_tool_result",
+                    "request_id": request_id,
+                    "ok": False,
+                    "error": {"code": "NOT_SUPPORTED", "message": "tool executor not configured"},
+                }
+            )
             return
 
         try:
             result = await self._tool_executor(tool_name, params)
-            await self._ws.send_json({
-                "type": "node_tool_result",
-                "request_id": request_id,
-                "ok": True,
-                "data": result,
-            })
+            await self._ws.send_json(
+                {
+                    "type": "node_tool_result",
+                    "request_id": request_id,
+                    "ok": True,
+                    "data": result,
+                }
+            )
         except Exception as e:
-            await self._ws.send_json({
-                "type": "node_tool_result",
-                "request_id": request_id,
-                "ok": False,
-                "error": {"code": "TOOL_ERROR", "message": str(e)},
-            })
+            await self._ws.send_json(
+                {
+                    "type": "node_tool_result",
+                    "request_id": request_id,
+                    "ok": False,
+                    "error": {"code": "TOOL_ERROR", "message": str(e)},
+                }
+            )
 
     async def ping_loop(self) -> None:
         while True:
             await asyncio.sleep(self._ping_interval)
             try:
-                await self._ws.send_json({
-                    "type": "node_ping",
-                    "ts": int(time.time() * 1000),
-                })
+                await self._ws.send_json(
+                    {
+                        "type": "node_ping",
+                        "ts": int(time.time() * 1000),
+                    }
+                )
             except Exception:
                 break
 
@@ -256,8 +256,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
     接受一或多個 waifu-node 以 WebSocket client 身份連入 /node。
     每個 node 以 node_id 識別，存為獨立的 NodeSession。
 
-    多 node 時 tool 命名（exec@home-pc）由呼叫方 plugin 負責；
-    adapter 本身只管理連線生命週期與訊息路由。
+    多 node 時 tool 命名（exec@home-pc）由呼叫方 plugin 負責
 
     Protocol messages（node_* 前綴）：
       node_hello / node_welcome / node_reject
@@ -286,8 +285,6 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
     def set_node_manager(self, manager: "NodeManager") -> None:
         self._node_manager = manager
 
-    # ── 公開 API ────────────────────────────────────────────────────────────
-
     @property
     def nodes(self) -> List[NodeSession]:
         """目前所有已連線的 NodeSession"""
@@ -297,9 +294,7 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
         """取得特定 node_id 的 NodeSession，未連線回傳 None"""
         return self._sessions.get(node_id)
 
-    async def invoke(
-        self, node_id: str, action: str, params: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def invoke(self, node_id: str, action: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         呼叫指定 node 的能力。
 
@@ -331,15 +326,11 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
             raise NodeNotConnectedError(f"node {node_id!r} is not connected")
         await session.sync_skill(skill_id, version, base_url, files, timeout_s)
 
-    # ── BaseGatewayAdapter ───────────────────────────────────────────────────
-
     async def start(self, core: "GatewayCore") -> None:
         pass  # endpoint 由 router 掛載
 
     async def send(self, response: OutgoingResponse) -> None:
         pass  # 非對話 channel
-
-    # ── WebSocket 處理 ───────────────────────────────────────────────────────
 
     async def handle(self, websocket: "WebSocket") -> None:
         await websocket.accept()
@@ -359,21 +350,25 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
 
         # 驗證協議版本
         if hello.get("protocol") != PROTOCOL_VERSION:
-            await websocket.send_json({
-                "type": "node_reject",
-                "code": "PROTOCOL_VERSION_MISMATCH",
-                "reason": f"expected protocol={PROTOCOL_VERSION}, got {hello.get('protocol')}",
-            })
+            await websocket.send_json(
+                {
+                    "type": "node_reject",
+                    "code": "PROTOCOL_VERSION_MISMATCH",
+                    "reason": f"expected protocol={PROTOCOL_VERSION}, got {hello.get('protocol')}",
+                }
+            )
             await websocket.close(code=4002)
             return
 
         # 驗證 token
         if self._token and hello.get("token", "") != self._token:
-            await websocket.send_json({
-                "type": "node_reject",
-                "code": "AUTH_FAILED",
-                "reason": "invalid token",
-            })
+            await websocket.send_json(
+                {
+                    "type": "node_reject",
+                    "code": "AUTH_FAILED",
+                    "reason": "invalid token",
+                }
+            )
             await websocket.close(code=4003)
             return
 
@@ -404,18 +399,22 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
         self._sessions[node_id] = session
 
         accepted_tool_names = [t.get("name") for t in node_tools]
-        await websocket.send_json({
-            "type": "node_welcome",
-            "session_id": session.session_id,
-            "accepted_caps": list(caps),
-            "accepted_tools": accepted_tool_names,
-        })
+        await websocket.send_json(
+            {
+                "type": "node_welcome",
+                "session_id": session.session_id,
+                "accepted_caps": list(caps),
+                "accepted_tools": accepted_tool_names,
+            }
+        )
 
         logger.info(
-            "waifu-node connected: node_id={} display_name={} platform={} "
-            "caps=%s tools=%s skills=%s total_nodes=%d",
-            node_id, session.display_name, session.platform,
-            sorted(caps), accepted_tool_names,
+            "waifu-node connected: node_id={} display_name={} platform={} caps=%s tools=%s skills=%s total_nodes=%d",
+            node_id,
+            session.display_name,
+            session.platform,
+            sorted(caps),
+            accepted_tool_names,
             [s.get("skill_id") for s in session.installed_skills],
             len(self._sessions),
         )
@@ -434,10 +433,9 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
                 self._node_manager.on_node_disconnect(node_id)
             logger.info(
                 "waifu-node disconnected: node_id={} total_nodes={}",
-                node_id, len(self._sessions),
+                node_id,
+                len(self._sessions),
             )
-
-    # ── 內部 ────────────────────────────────────────────────────────────────
 
     @staticmethod
     async def _receive_loop(session: NodeSession, websocket: "WebSocket") -> None:

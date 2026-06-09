@@ -14,11 +14,8 @@ from waifu.logger import logger
 
 class SSEMCPAdapter(BaseMCPAdapter):
     """
-    透過 HTTP SSE 與 MCP Server 溝通
-
-    用法：
-        SSEMCPAdapter("http://localhost:8080/sse")
-        SSEMCPAdapter("http://localhost:8080/sse", headers={"Authorization": "Bearer token"})
+    SSEMCPAdapter("http://localhost:8080/sse")
+    SSEMCPAdapter("http://localhost:8080/sse", headers={"Authorization": "Bearer token"})
     """
 
     def __init__(self, url: str, headers: Optional[Dict[str, str]] = None) -> None:

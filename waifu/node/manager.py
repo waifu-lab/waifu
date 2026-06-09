@@ -12,22 +12,12 @@ from waifu.logger import logger
 
 
 class NodeManager:
-    """
-    Node 子系統管理器（系統層，與 PluginManager 平級）
-
-    職責：
-    - node 連線時動態將其 tools 注入 PluginRegistry（永遠帶 @display_name 後綴）
-    - node 斷線時移除對應 tools
-    - 提供 tool_executor 供 node 透過 node_tool_call 反向呼叫 waifu tools
-    """
-
     def __init__(self, plugin_registry: "PluginRegistry") -> None:
         self._registry = plugin_registry
         self._node_tools: Dict[str, List[str]] = {}  # node_id → registered tool names
         self._sessions: Dict[str, "NodeSession"] = {}  # node_id → NodeSession（用於重複名稱偵測）
 
     def wire(self, adapter: "WaifuNodeAdapter") -> None:
-        """將 NodeManager 注入 WaifuNodeAdapter"""
         adapter.set_node_manager(self)
 
     def on_node_connect(self, session: "NodeSession") -> None:
@@ -36,7 +26,8 @@ class NodeManager:
 
         existing_suffixes = {
             f"__{(s.display_name or s.node_id).replace('-', '_').replace(' ', '_')}"
-            for nid, s in self._sessions.items() if nid != session.node_id
+            for nid, s in self._sessions.items()
+            if nid != session.node_id
         }
         if suffix in existing_suffixes:
             logger.warning(
