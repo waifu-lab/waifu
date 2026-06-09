@@ -1,0 +1,47 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish-main:
+    name: Publish waifu-ai
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Build waifu-ai
+        run: uv build --package waifu
+
+      - name: Publish waifu-ai
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  publish-sdk:
+    name: Publish waifu_sdk
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Build waifu_sdk
+        run: uv build --package waifu_sdk
+
+      - name: Publish waifu_sdk
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/

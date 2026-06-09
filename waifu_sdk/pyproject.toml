@@ -14,14 +14,14 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
 ]
-dependencies = ["waifu_types>=0.1.0"]
+dependencies = ["pydantic>=2.0"]
 
 [build-system]
-requires = ["uv_build>=0.11.2,<0.12"]
-build-backend = "uv_build"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.uv.build-backend]
-module-root = ""
+[tool.hatch.build.targets.wheel]
+packages = ["waifu_sdk"]
 
-[tool.uv.sources]
-waifu_types = { workspace = true }
+[tool.hatch.build.targets.wheel.force-include]
+"../waifu_types/waifu_types" = "waifu_types"
