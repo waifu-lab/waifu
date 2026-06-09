@@ -95,19 +95,39 @@ def _cmd_list(args: List[str]) -> None:
 
 
 def _cmd_add(args: List[str]) -> None:
-    # waifu cron add <name> <type> <schedule> <command...>
-    if len(args) < 4:
-        err_console.print("[red]Usage:[/red] waifu cron add <name> <type> <schedule> <command>")
-        err_console.print("  type: [bold]at[/bold] | [bold]every[/bold] | [bold]cron[/bold]")
-        sys.exit(1)
-    name, type_, schedule = args[0], args[1], args[2]
-    command = " ".join(args[3:])
+    # waifu cron add --name <name> --type <type> --schedule <schedule> --command <cmd>
+    # also accepts positional: waifu cron add <name> <type> <schedule> <command...>
+    import argparse
+
+    if args and args[0].startswith("--"):
+        p = argparse.ArgumentParser(prog="waifu cron add", add_help=False)
+        p.add_argument("--name", required=True)
+        p.add_argument("--type", dest="type_", required=True)
+        p.add_argument("--schedule", required=True)
+        p.add_argument("--command", required=True)
+        try:
+            ns = p.parse_args(args)
+        except SystemExit:
+            err_console.print(
+                "[red]Usage:[/red] waifu cron add --name NAME --type TYPE --schedule SCHEDULE --command CMD"
+            )
+            sys.exit(1)
+        name, type_, schedule, command = ns.name, ns.type_, ns.schedule, ns.command
+    else:
+        if len(args) < 4:
+            err_console.print("[red]Usage:[/red] waifu cron add <name> <type> <schedule> <command>")
+            err_console.print("  type: [bold]at[/bold] | [bold]every[/bold] | [bold]cron[/bold]")
+            sys.exit(1)
+        name, type_, schedule = args[0], args[1], args[2]
+        command = " ".join(args[3:])
     if type_ not in ("at", "every", "cron"):
         err_console.print(f"[red]Invalid type:[/red] {type_}  (must be at | every | cron)")
         sys.exit(1)
     store = _get_store()
     job = store.create(name=name, type=type_, schedule=schedule, command=command)
-    console.print(f"[green][OK][/green] Job [bold]{cast(str, job.name)}[/bold] created  [dim]{cast(str, job.id)[:8]}[/dim]")
+    console.print(
+        f"[green][OK][/green] Job [bold]{cast(str, job.name)}[/bold] created  [dim]{cast(str, job.id)[:8]}[/dim]"
+    )
 
 
 def _cmd_remove(args: List[str]) -> None:

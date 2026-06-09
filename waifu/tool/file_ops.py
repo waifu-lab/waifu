@@ -39,7 +39,8 @@ def _file_search(
         return f"[error] {e}"
 
     if pattern:
-        all_files = [f for f in all_files if fnmatch.fnmatch(f.name, pattern)]
+        glob_pattern = pattern if any(c in pattern for c in ("*", "?", "[")) else f"*{pattern}*"
+        all_files = [f for f in all_files if fnmatch.fnmatch(f.name, glob_pattern)]
 
     if not content_pattern:
         hits = [str(f) for f in all_files[:max_results]]

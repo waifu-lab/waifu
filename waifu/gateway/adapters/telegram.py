@@ -227,30 +227,41 @@ def _telegram_group_conversation_id(chat_id: object, user_id: object, *, group_s
     return base
 
 
+_TELEGRAM_STREAM_INTERVAL = 1.5
+
+
 def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
     """建立綁定到此 Telegram 訊息的 reply_fn
 
-    stream_edit=True：每次收到 chunk 時 edit 同一則訊息模擬串流
+    stream_edit=True：每隔 _TELEGRAM_STREAM_INTERVAL 秒 edit 一次訊息模擬串流；
+                      最終 response 時強制更新為完整內容。
     stream_edit=False：等最終 response 再一次送出
     """
+    import time
+
     sent_message = None
     buffer: list[str] = []
+    last_edit: float = 0.0
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_) -> None:
-        nonlocal sent_message, buffer
+    async def reply_fn(
+        response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_
+    ) -> None:
+        nonlocal sent_message, buffer, last_edit
         if event is not None:
             return
 
         if chunk is not None and stream_edit:
             buffer.append(chunk)
-            content = "".join(buffer)
+            now = time.monotonic()
             try:
                 if sent_message is None:
-                    sent_message = await message.reply_text(content)  # type: ignore[attr-defined]
-                else:
-                    await sent_message.edit_text(content)  # type: ignore[attr-defined]
+                    sent_message = await message.reply_text("".join(buffer))  # type: ignore[attr-defined]
+                    last_edit = now
+                elif now - last_edit >= _TELEGRAM_STREAM_INTERVAL:
+                    await sent_message.edit_text("".join(buffer))  # type: ignore[attr-defined]
+                    last_edit = now
             except Exception:
-                pass  # edit 失敗時靜默（Telegram 有 rate limit）
+                pass
         elif response is not None:
             final = response.content or "".join(buffer)
             if not final:
