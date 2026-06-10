@@ -1,4 +1,5 @@
 from .lipsync import build_lipsync_events
 from .service import SynthesisResult, VoiceService
+from .translator import DeepLTranslator
 
-__all__ = ["VoiceService", "SynthesisResult", "build_lipsync_events"]
+__all__ = ["VoiceService", "SynthesisResult", "build_lipsync_events", "DeepLTranslator"]

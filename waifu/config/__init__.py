@@ -89,6 +89,13 @@ class GPTSoVITSTTSConfig(BaseModel):
     retry_backoff_s: float = 0.1
 
 
+class DeepLConfig(BaseModel):
+    """DeepL 翻譯設定（TTS 合成前自動翻譯）"""
+
+    api_key: str
+    target_lang: str = "JA"  # 目標語言，預設日文
+
+
 class VoiceConfig(BaseModel):
     """語音功能設定（STT + TTS，皆可選）"""
 
@@ -97,6 +104,7 @@ class VoiceConfig(BaseModel):
     tts: Optional[TTSConfig] = None
     gptsovits_tts: Optional[GPTSoVITSTTSConfig] = None
     lipsync_fps: int = 20  # 口型 viseme 取樣幀率
+    translation: Optional[DeepLConfig] = None  # 設定後 TTS 前自動翻譯
 
 
 # TODO: node_tokens: dict[str, str]

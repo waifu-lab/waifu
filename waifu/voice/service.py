@@ -12,6 +12,8 @@ from .lipsync import build_lipsync_events
 if TYPE_CHECKING:
     from hai.providers.providers import ProviderSTT, ProviderTTS
 
+    from .translator import DeepLTranslator
+
 _SENTENCE_SPLIT = re.compile(
     r"(?<=[。！？!?…])\s+|(?<=[。！？!?…])(?=\S)|(?<=\.)\s+(?=(?:['\"([{<]|[A-Z0-9\u4e00-\u9fff]))"
 )
@@ -31,12 +33,14 @@ class VoiceService:
         lipsync_fps: int = 20,
         tts_timeout_retries: int = 2,
         tts_retry_backoff_s: float = 0.5,
+        translator: Optional["DeepLTranslator"] = None,
     ) -> None:
         self._stt = stt
         self._tts = tts
         self._lipsync_fps = lipsync_fps
         self._tts_timeout_retries = max(0, tts_timeout_retries)
         self._tts_retry_backoff_s = max(0.0, tts_retry_backoff_s)
+        self._translator = translator
 
     @property
     def has_stt(self) -> bool:
@@ -51,10 +55,20 @@ class VoiceService:
             raise RuntimeError("VoiceService: STT provider not configured")
         return await self._stt.transcribe(audio, format=format, language=language)
 
+    async def _translate(self, text: str) -> str:
+        if self._translator is None:
+            return text
+        try:
+            return await self._translator.translate(text)
+        except Exception as exc:
+            logger.warning("DeepL translation failed, using original text: {}", exc)
+            return text
+
     async def synthesize(self, text: str, need_lipsync: bool = False) -> "SynthesisResult":
         if self._tts is None:
             raise RuntimeError("VoiceService: TTS provider not configured")
 
+        text = await self._translate(text)
         audio_bytes = await self._tts.synthesize(text)
         fmt = self._tts.response_format
         visemes = build_lipsync_events(text, frames=self._lipsync_fps) if need_lipsync else []
@@ -69,6 +83,7 @@ class VoiceService:
         """逐塊 yield 音訊 bytes，不緩衝整段音頻。"""
         if self._tts is None:
             raise RuntimeError("VoiceService: TTS provider not configured")
+        text = await self._translate(text)
         async for chunk in self._tts.synthesize_stream(text, chunk_size=chunk_size):
             yield chunk
 
@@ -88,6 +103,7 @@ class VoiceService:
             tts_text = _EMOTION_TAG.sub("", sentence).strip()
             if not tts_text:
                 return None
+            tts_text = await self._translate(tts_text)
             audio_bytes = await self._synthesize_with_retry(sentence, tts_text)
             visemes = build_lipsync_events(sentence, frames=self._lipsync_fps) if need_lipsync else []
             return SynthesisResult(

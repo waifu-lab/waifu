@@ -38,7 +38,7 @@ from waifu.store.repositories import (
     RelationshipRepository,
     TokenAnalyticsRepository,
 )
-from waifu.voice import VoiceService
+from waifu.voice import DeepLTranslator, VoiceService
 from waifu_types import (
     AssistantMessage,
     BaseGatewayAdapter,
@@ -180,12 +180,19 @@ def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService
         )
         tts_timeout_retries = config.tts.timeout_retries
         tts_retry_backoff_s = config.tts.retry_backoff_s
+    translator = None
+    if config.translation:
+        translator = DeepLTranslator(
+            api_key=config.translation.api_key,
+            target_lang=config.translation.target_lang,
+        )
     return VoiceService(
         stt=stt,
         tts=tts,
         lipsync_fps=config.lipsync_fps,
         tts_timeout_retries=tts_timeout_retries,
         tts_retry_backoff_s=tts_retry_backoff_s,
+        translator=translator,
     )
 
 
