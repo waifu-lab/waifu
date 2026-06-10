@@ -18,7 +18,8 @@ class DeepLTranslator:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.post(
                 self._url,
-                data={"auth_key": self._api_key, "text": text, "target_lang": self._target_lang},
+                headers={"Authorization": f"DeepL-Auth-Key {self._api_key}"},
+                data={"text": text, "target_lang": self._target_lang},
             )
             resp.raise_for_status()
             result: str = resp.json()["translations"][0]["text"]
