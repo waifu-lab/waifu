@@ -27,9 +27,15 @@ class BaseModel(Model):
 # TODO: 重新思索表的設計
 
 
+class TitleStatus:
+    PENDING = "pending"  # 標題為暫時值，等待自動命名
+    SET = "set"  # 已由使用者或自動命名決定，不再自動修改
+
+
 class Conversation(BaseModel):
     id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
     title = CharField()
+    title_status = CharField(default=TitleStatus.SET)
     created_at = DateTimeField(default=datetime.utcnow)
     updated_at = DateTimeField(default=datetime.utcnow)
 
@@ -43,12 +49,10 @@ class Conversation(BaseModel):
 
 class Message(BaseModel):
     id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
-    conversation = ForeignKeyField(
-        Conversation, backref="messages", on_delete="CASCADE", column_name="conversation_id"
-    )
+    conversation = ForeignKeyField(Conversation, backref="messages", on_delete="CASCADE", column_name="conversation_id")
     role = CharField()  # user | assistant | system | tool
     content = TextField()
-    input_tokens = IntegerField(null=True)   # assistant 訊息的 LLM input token 數
+    input_tokens = IntegerField(null=True)  # assistant 訊息的 LLM input token 數
     output_tokens = IntegerField(null=True)  # assistant 訊息的 LLM output token 數
     created_at = DateTimeField(default=datetime.utcnow)
 
@@ -58,15 +62,13 @@ class Message(BaseModel):
 
 class MessageAttachment(BaseModel):
     id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
-    message = ForeignKeyField(
-        Message, backref="attachments", on_delete="CASCADE", column_name="message_id"
-    )
+    message = ForeignKeyField(Message, backref="attachments", on_delete="CASCADE", column_name="message_id")
     conversation_id = CharField()  # 冗餘欄位，方便依 conversation 整批清檔
     filename = CharField()
     content_type = CharField()
     size_bytes = IntegerField(default=0)
     storage_path = CharField(null=True)  # 相對 attachments_dir 的路徑；與 url 至少一個
-    url = CharField(null=True)           # 遠端 CDN（Discord/Telegram）；與 storage_path 至少一個
+    url = CharField(null=True)  # 遠端 CDN（Discord/Telegram）；與 storage_path 至少一個
     created_at = DateTimeField(default=datetime.utcnow)
 
     class Meta:
@@ -77,8 +79,8 @@ class DailyTokenUsage(BaseModel):
     """每日 token 使用量彙總（UTC date）"""
 
     id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
-    date = DateField()                        # UTC date, e.g. 2026-04-23
-    conversation_id = CharField(null=True)    # None = 全域彙總
+    date = DateField()  # UTC date, e.g. 2026-04-23
+    conversation_id = CharField(null=True)  # None = 全域彙總
     input_tokens = IntegerField(default=0)
     output_tokens = IntegerField(default=0)
     total_tokens = IntegerField(default=0)
@@ -171,9 +173,7 @@ class Character(BaseModel):
 
 class Relationship(BaseModel):
     id = CharField(primary_key=True, default=lambda: str(uuid.uuid4()))
-    character = ForeignKeyField(
-        Character, backref="relationships", on_delete="CASCADE", column_name="character_id"
-    )
+    character = ForeignKeyField(Character, backref="relationships", on_delete="CASCADE", column_name="character_id")
     user_id = CharField()  # e.g. "discord:user:123456"
     display_name = CharField()
     notes = TextField(default="")  # markdown 格式，記住的事
@@ -189,7 +189,29 @@ class Relationship(BaseModel):
         return super().save(*args, **kwargs)
 
 
-_TABLES = [Conversation, Message, MessageAttachment, DailyTokenUsage, CronJob, CronRun, PluginConfig, MCPServer, AppConfig, Character, Relationship]
+_TABLES = [
+    Conversation,
+    Message,
+    MessageAttachment,
+    DailyTokenUsage,
+    CronJob,
+    CronRun,
+    PluginConfig,
+    MCPServer,
+    AppConfig,
+    Character,
+    Relationship,
+]
+
+
+def _migrate() -> None:
+    from playhouse.migrate import SqliteMigrator, migrate
+
+    columns = {c.name for c in _db.get_columns("conversations")}
+    if "title_status" not in columns:
+        with _db.atomic():
+            migrate(SqliteMigrator(_db).add_column("conversations", "title_status", Conversation.title_status))
+            Conversation.update(title_status=TitleStatus.PENDING).where(Conversation.title == Conversation.id).execute()
 
 
 class Database:
@@ -209,6 +231,7 @@ class Database:
         )
         _db.connect(reuse_if_open=True)
         _db.create_tables(_TABLES, safe=True)
+        _migrate()
 
     def close(self) -> None:
         if not _db.is_closed():

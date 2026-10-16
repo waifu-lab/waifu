@@ -1,21 +1,38 @@
 from .adapter import BaseGatewayAdapter
+from .command import CommandArgument, CommandCatalog, CommandDefinition, CommandHandler
+from .gateway import GatewayProtocol
 from .hook import BaseHook, HookContext
+from .keys import Feature, RequestMeta, SessionMeta
 from .mcp import BaseMCPAdapter
 from .msg import MessageParts
+from .output import InlineTag, InlineTagTransformer, OutputTransformer, StreamTransform
 from .plugin import BasePlugin, PluginContext
 from .prompt import SystemPromptLayers
-from .services import ConversationService, SessionService, VoiceServiceProtocol
+from .services import (
+    ConversationInfo,
+    ConversationService,
+    ServiceProvider,
+    SessionService,
+    StoredMessage,
+    SynthesisResultProtocol,
+    VoiceServiceProtocol,
+)
 from .session import BaseSession
+from .tool import FunctionTool, ToolLike, tool
 from .trace import BaseExecutionTrace
 from .types import (
     AssistantMessage,
     Attachment,
     BaseMessage,
+    ContentPart,
     ConversationMode,
+    Event,
     GenericMessage,
     IncomingRequest,
     LLMMessage,
+    MessageContent,
     OutgoingResponse,
+    ReplyFn,
     Sender,
     SystemMessage,
     ToolCall,
@@ -36,24 +53,50 @@ __all__ = [
     "ToolCall",
     "ToolCallFunction",
     "LLMMessage",
+    "ContentPart",
+    "MessageContent",
     # types
     "IncomingRequest",
     "OutgoingResponse",
     "Attachment",
     "ConversationMode",
     "Sender",
+    "Event",
+    "ReplyFn",
+    # well-known keys
+    "Feature",
+    "RequestMeta",
+    "SessionMeta",
     # ABCs / Protocols
     "BaseGatewayAdapter",
+    "GatewayProtocol",
     "BaseHook",
     "HookContext",
     "SystemPromptLayers",
+    "OutputTransformer",
+    "StreamTransform",
+    "InlineTag",
+    "InlineTagTransformer",
     "BaseSession",
     "BaseExecutionTrace",
     "BaseMCPAdapter",
     "BasePlugin",
     "PluginContext",
+    # commands
+    "CommandArgument",
+    "CommandDefinition",
+    "CommandHandler",
+    "CommandCatalog",
+    # tools
+    "ToolLike",
+    "FunctionTool",
+    "tool",
     # service protocols
     "ConversationService",
+    "ConversationInfo",
+    "StoredMessage",
     "SessionService",
+    "ServiceProvider",
     "VoiceServiceProtocol",
+    "SynthesisResultProtocol",
 ]

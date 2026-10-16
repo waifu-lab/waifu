@@ -1,7 +1,9 @@
 import json
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from waifu.store.models import AppConfig
+
+RESERVED_PREFIX = "__"
 
 
 class AppConfigRepository:
@@ -16,7 +18,7 @@ class AppConfigRepository:
         return json.loads(row.value) if row else default
 
     def get_all(self) -> dict:
-        return {r.key: json.loads(r.value) for r in AppConfig.select()}
+        return {r.key: json.loads(r.value) for r in AppConfig.select() if not str(r.key).startswith(RESERVED_PREFIX)}
 
     def upsert_all(self, entries: dict) -> None:
         """Write entries into DB, overwriting existing keys."""
@@ -27,13 +29,12 @@ class AppConfigRepository:
             ).execute()
 
     def replace_all(self, entries: dict) -> None:
-        """Replace the stored config snapshot so DB matches the config file."""
+        """讓 DB 內的設定（保留 key 除外）完全等於 entries"""
         db = cast(Any, AppConfig)._meta.database
         with db.atomic():
-            if entries:
-                AppConfig.delete().where(AppConfig.key.not_in(list(entries))).execute()
-            else:
-                AppConfig.delete().execute()
+            stale = [k for k in self.get_all() if k not in entries]
+            if stale:
+                AppConfig.delete().where(AppConfig.key.in_(stale)).execute()
             self.upsert_all(entries)
 
     def seed_if_absent(self, entries: dict) -> None:

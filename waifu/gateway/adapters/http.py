@@ -1,17 +1,23 @@
 import asyncio
 import json
 import uuid
-from typing import TYPE_CHECKING, AsyncIterator, List, Optional
+from typing import TYPE_CHECKING, Any, AsyncIterator, List, Optional
 
 from fastapi.responses import StreamingResponse
 
-from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import (
+    Attachment,
+    BaseGatewayAdapter,
+    ConversationMode,
+    Event,
+    GatewayProtocol,
+    IncomingRequest,
+    OutgoingResponse,
+    Sender,
+)
 
 if TYPE_CHECKING:
-    from waifu.gateway.core import GatewayCore
     from waifu.router.chat import ChatRequest
-
-from waifu.logger import logger
 
 
 class HTTPAdapter(BaseGatewayAdapter):
@@ -28,13 +34,15 @@ class HTTPAdapter(BaseGatewayAdapter):
         return cls()
 
     def __init__(self) -> None:
-        self._core: Optional["GatewayCore"] = None
+        self._core: Optional[GatewayProtocol] = None
 
-    async def start(self, core: "GatewayCore") -> None:
+    def routers(self) -> List[Any]:
+        from waifu.router.chat import make_chat_router
+
+        return [make_chat_router(self)]
+
+    async def start(self, core: GatewayProtocol) -> None:
         self._core = core
-
-    async def send(self, response: OutgoingResponse) -> None:
-        pass  # HTTP 傳送由 reply_fn / StreamingResponse 負責
 
     async def handle(self, body: "ChatRequest", attachments: Optional[List[Attachment]] = None) -> StreamingResponse:
         if self._core is None:
@@ -50,15 +58,17 @@ class HTTPAdapter(BaseGatewayAdapter):
             response: Optional[OutgoingResponse] = None,
             *,
             chunk: Optional[str] = None,
-            event: Optional[dict] = None,
+            event: Optional[Event] = None,
         ) -> None:
             nonlocal chunk_sent
             if chunk is not None:
                 chunk_sent = True
                 await queue.put({"type": "chunk", "content": chunk})
             elif event is not None:
-                await queue.put({"type": "event", **event})
+                await queue.put({"type": "event", **event.model_dump()})
             elif response is not None:
+                for ev in response.events:
+                    await queue.put({"type": "event", **ev.model_dump()})
                 if response.content and not chunk_sent:
                     await queue.put({"type": "chunk", "content": response.content})
                 await queue.put(None)  # sentinel: stream end
@@ -74,7 +84,16 @@ class HTTPAdapter(BaseGatewayAdapter):
             reply_fn=reply_fn,
         )
 
-        asyncio.create_task(self._core.dispatch(request))
+        core = self._core
+
+        async def _run() -> None:
+            try:
+                await core.dispatch_and_wait(request)
+            except Exception:
+                await queue.put({"type": "error", "content": "request failed"})
+                await queue.put(None)
+
+        asyncio.create_task(_run())
 
         return StreamingResponse(
             _sse_stream(queue),

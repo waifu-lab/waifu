@@ -10,8 +10,8 @@ from waifu.config import (
     ContextConfig,
     GatewayConfig,
     ProviderConfig,
+    OpenAITTSConfig,
     STTConfig,
-    TTSConfig,
     VoiceConfig,
     WaifuConfig,
     WaifuNodeConfig,
@@ -304,7 +304,7 @@ def _prompt_voice_config():
             ["alloy", "echo", "fable", "onyx", "nova", "shimmer"],
             default=5,
         )
-        tts = TTSConfig(
+        tts = OpenAITTSConfig(
             api_key=tts_api_key,
             base_url=tts_base_url,
             model=tts_model,

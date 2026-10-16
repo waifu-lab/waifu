@@ -1,24 +1,28 @@
 import asyncio
 import json
-import re
 import time
-from typing import Any, Dict, Optional, cast
+from pathlib import Path
+from typing import Any, Dict, List, Optional, cast
 
-from hai.providers import ProviderSTT, ProviderText, ProviderTTS, create_text_provider
+from hai.providers import ProviderText, create_text_provider
 
 from waifu.agent import AgentRunner, ContextBuilder, UtilityAI
+from waifu.agent.output import OutputPipeline
 from waifu.card import CardImporter, CardParser
-from waifu.config import MemoryConfig, ProviderConfig, VoiceConfig, WaifuConfig
+from waifu.config import ProviderConfig, WaifuConfig
+from waifu.config.sync import ConfigSync
 from waifu.cron import CronExecutor, CronScheduler
 from waifu.gateway import GatewayCore
+from waifu.gateway.session import SessionManager
 from waifu.heartbeat import HeartbeatManager
 from waifu.hook import HookPipeline, HookRegistry
-from waifu.hook.builtin import EmotionHook, LoggingHook, TTSHook
+from waifu.hook.builtin import EmotionHook, LoggingHook, RateLimitHook, TTSHook
 from waifu.hook.memory import MemoryHook
 from waifu.logger import logger
 from waifu.mcp.manager import MCPManager
 from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
+from waifu.plugin.facade import ConversationServiceFacade
 from waifu.plugin.loader import PluginLoader
 from waifu.service.character import CharacterService
 from waifu.service.command import CommandService
@@ -26,10 +30,12 @@ from waifu.service.config import AppConfigService
 from waifu.service.gateway import GatewayConfigService
 from waifu.service.mcp import MCPService
 from waifu.service.plugin import PluginService
+from waifu.service.registry import ServiceRegistry
 from waifu.service.skill import SkillService
 from waifu.service.status import StatusService
+from waifu.service.title import AutoTitleService
 from waifu.skill import SkillPromptHook, SkillRegistry, make_skill_tool, scan_skills
-from waifu.store import AppPaths, CharacterManager, CronStore, Database, FileMemoryStore, HistoryTreeStore
+from waifu.store import AppPaths, CharacterManager, CronStore, Database
 from waifu.store.conversation import ConversationStore
 from waifu.store.repositories import (
     AppConfigRepository,
@@ -38,25 +44,26 @@ from waifu.store.repositories import (
     RelationshipRepository,
     TokenAnalyticsRepository,
 )
-from waifu.voice import DeepLTranslator, VoiceService
+from waifu.voice import VoiceService
 from waifu_types import (
     AssistantMessage,
     BaseGatewayAdapter,
     BaseHook,
     BaseMessage,
     BasePlugin,
+    ConversationService,
     GenericMessage,
     HookContext,
     IncomingRequest,
     MessageParts,
     OutgoingResponse,
+    ReplyFn,
+    SessionService,
     SystemMessage,
     ToolMessage,
     UserMessage,
+    VoiceServiceProtocol,
 )
-
-# FIXME: 超醜
-_EMOTION_TAG_RE = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
 
 
 def _to_waifu_message(m: Any) -> BaseMessage:
@@ -73,38 +80,6 @@ def _to_waifu_message(m: Any) -> BaseMessage:
     if role == "system":
         return SystemMessage(content=d.get("content", ""))
     return GenericMessage(**d)
-
-
-def _config_seed(config: "WaifuConfig") -> dict:
-    """Flatten WaifuConfig into dotted key/value pairs for DB sync."""
-    entries: dict = {}
-
-    def add_section(prefix: str, data: dict) -> None:
-        for field, value in data.items():
-            key = f"{prefix}.{field}"
-            if isinstance(value, dict):
-                add_section(key, value)
-            else:
-                entries[key] = value
-
-    add_section("gateway", config.gateway.model_dump())
-    add_section(
-        "context",
-        config.context.model_dump(
-            exclude_none=True,
-        ),
-    )
-    add_section("memory", config.memory.model_dump(exclude_none=True))
-    add_section("provider", config.provider.model_dump(exclude_none=True))
-    if config.utility_provider is not None:
-        add_section("utility_provider", config.utility_provider.model_dump(exclude_none=True))
-    if config.voice is not None:
-        add_section("voice", config.voice.model_dump(exclude_none=True))
-    if config.node is not None:
-        add_section("node", config.node.model_dump(exclude_none=True))
-    if config.character is not None:
-        entries["character"] = config.character
-    return entries
 
 
 def _build_provider(config: "ProviderConfig") -> ProviderText:
@@ -129,84 +104,9 @@ def _build_utility_provider(config: "ProviderConfig") -> ProviderText:
     )
 
 
-def _build_voice_service(config: Optional[VoiceConfig]) -> Optional[VoiceService]:
-    """從 VoiceConfig 建立 VoiceService，若未設定則回傳 None"""
-    if config is None:
-        return None
-    stt = None
-    tts = None
-    tts_timeout_retries = 2
-    tts_retry_backoff_s = 0.5
-    if config.stt:
-        stt = ProviderSTT(
-            name="waifu-stt",
-            api_key=config.stt.api_key,
-            base_url=config.stt.base_url,
-            model=config.stt.model,
-            language=config.stt.language,
-            temperature=config.stt.temperature,
-        )
-    if config.tts_backend == "gptsovits":
-        if config.gptsovits_tts:
-            from hai.providers.gptsovits import GPTSoVITSTTS
-
-            c = config.gptsovits_tts
-            tts = GPTSoVITSTTS(
-                base_url=c.base_url,
-                ref_audio_path=c.ref_audio_path,
-                prompt_text=c.prompt_text,
-                prompt_lang=c.prompt_lang,
-                text_lang=c.text_lang,
-                text_split_method=c.text_split_method,
-                batch_size=c.batch_size,
-                speed_factor=c.speed_factor,
-                streaming_mode=c.streaming_mode,
-                top_k=c.top_k,
-                top_p=c.top_p,
-                temperature=c.temperature,
-                timeout=c.timeout,
-            )
-            tts_timeout_retries = c.timeout_retries
-            tts_retry_backoff_s = c.retry_backoff_s
-    elif config.tts:
-        tts = ProviderTTS(
-            name="waifu-tts",
-            api_key=config.tts.api_key,
-            base_url=config.tts.base_url,
-            model=config.tts.model,
-            voice=config.tts.voice,
-            response_format=config.tts.response_format,
-            speed=config.tts.speed,
-        )
-        tts_timeout_retries = config.tts.timeout_retries
-        tts_retry_backoff_s = config.tts.retry_backoff_s
-    translator = None
-    if config.translation:
-        translator = DeepLTranslator(
-            api_key=config.translation.api_key,
-            target_lang=config.translation.target_lang,
-        )
-    return VoiceService(
-        stt=stt,
-        tts=tts,
-        lipsync_fps=config.lipsync_fps,
-        tts_timeout_retries=tts_timeout_retries,
-        tts_retry_backoff_s=tts_retry_backoff_s,
-        translator=translator,
-    )
-
-
-def _resolve_memory_backend(config: MemoryConfig, *, has_character: bool) -> str:
-    if config.backend != "auto":
-        return config.backend
-    return "file" if has_character else "none"
-
-
 class Waifu:
     """
-    組裝根（Composition Root）：將所有元件以 DI 方式組合
-
-    不含業務邏輯，只負責建立依賴關係並串接資料流
+    組裝根（Composition Root）：將所有元件以 DI 方式組合，並負責單一請求的處理流程（_dispatch）
     """
 
     def __init__(
@@ -215,7 +115,9 @@ class Waifu:
         paths: Optional[AppPaths] = None,
         localmode: Optional[bool] = False,
         gateway_config_service: Optional[GatewayConfigService] = None,
+        config_path: Optional[Path] = None,
     ) -> None:
+        """config_path：與 DB 同步的 config.toml，預設為 paths.config_file"""
         self._config = config
         self._localmode: bool = bool(localmode)
         self._paths = paths or AppPaths.resolve()
@@ -236,16 +138,17 @@ class Waifu:
 
         _util_cfg = config.utility_provider or config.provider
         self._utility_ai = UtilityAI(_build_utility_provider(_util_cfg))
-        self._voice_service: Optional[VoiceService] = _build_voice_service(config.voice)
+        self._auto_title = AutoTitleService(self._conversation_store, self._utility_ai)
+        self._voice_service: Optional[VoiceService] = VoiceService.from_config(config.voice) if config.voice else None
 
         # Hook
         self._hook_registry = HookRegistry()
         self._hook_pipeline = HookPipeline(self._hook_registry)
-        self._memory_hook: Optional[MemoryHook] = None
-        self._register_builtin_hooks(config)
+        self._output = OutputPipeline(self._hook_registry)
+        self._memory_hook = self._register_builtin_hooks(config)
 
         # Agent
-        self._context_builder = ContextBuilder(config.context, hook_registry=self._hook_registry)
+        self._context_builder = ContextBuilder(config.context, hook_registry=self._hook_registry, paths=self._paths)
         self._context_builder.set_soul_content(soul_content)
         self._agent_runner = AgentRunner(self._provider)
 
@@ -268,14 +171,16 @@ class Waifu:
 
         self._mcp_manager = MCPManager(self._plugin_registry)
 
+        conversation_service = ConversationServiceFacade(self._conversation_store)
         self._plugin_manager = PluginManager(
             hook_registry=self._hook_registry,
             plugin_registry=self._plugin_registry,
-            store=self._conversation_store,
+            store=conversation_service,
             sessions=self._gateway.session_manager,
             gateway=self._gateway,
             gateway_config_service=gateway_config_service,
             voice=self._voice_service,
+            mcp_manager=self._mcp_manager,
         )
         self._gateway.set_dispatch_handler(self._dispatch)
 
@@ -290,8 +195,9 @@ class Waifu:
         self._character_repo = CharacterRepository()
         self._relationship_repo = RelationshipRepository()
 
-        # config.toml is the source of truth; mirror its snapshot into DB.
-        self._config_repo.replace_all(_config_seed(config))
+        # DB 是設定的真實來源；以本次啟動使用的設定為準（經 ConfigSync.load() 載入時兩者相同）
+        self._config_sync = ConfigSync(self._config_repo, config_path or self._paths.config_file)
+        self._config_sync.adopt(config)
 
         self._card_parser = CardParser()
         self._card_importer = CardImporter(cards_dir=self._paths.cards_dir, parser=self._card_parser)
@@ -300,7 +206,9 @@ class Waifu:
         self._plugin_service = PluginService(self._plugin_repo, self._plugin_manager, self._plugin_loader)
         self._mcp_service = MCPService(self._mcp_manager, self._paths.mcp_config_file)
         self._skill_service = SkillService(self._skill_registry, self._paths.skills_dir)
-        self._config_service = AppConfigService(self._config_repo, self._context_builder, self._agent_runner)
+        self._config_service = AppConfigService(
+            self._config_repo, self._context_builder, self._agent_runner, self._config_sync
+        )
         voice_enabled = self._voice_service is not None
         self._status_service = StatusService(
             get_started_at=lambda: self._started_at,
@@ -321,9 +229,10 @@ class Waifu:
             mcp_service=self._mcp_service,
             skill_service=self._skill_service,
             config_service=self._config_service,
-            memory_clear=self._memory_hook.clear if self._memory_hook is not None else None,
         )
+        self._command_service.on_reset(self._memory_hook.clear)
         self._gateway.set_command_service(self._command_service)
+        self._plugin_manager.set_command_service(self._command_service)
         self._character_service = CharacterService(
             self._character_repo,
             self._relationship_repo,
@@ -332,54 +241,56 @@ class Waifu:
         )
         self._token_analytics = TokenAnalyticsRepository()
 
-        self._cron_executor = CronExecutor(dispatch_fn=self._dispatch)
+        # cron / heartbeat 也經過 gateway 的 Lane，確保與使用者訊息在同一對話中串行
+        self._cron_executor = CronExecutor(dispatch_fn=self._gateway.dispatch_and_wait)
         self._cron_scheduler = CronScheduler(store=self._cron_store, executor=self._cron_executor)
-
-        import functools
-
-        self._heartbeat_manager = HeartbeatManager(dispatch_fn=functools.partial(self._dispatch, skip_auto_title=True))
-
-    def _register_builtin_hooks(self, config: WaifuConfig) -> None:
-        """根據 config 自動掛載內建 hooks"""
-        memory_store = None
-        backend = _resolve_memory_backend(config.memory, has_character=bool(config.character))
-        logger.info(
-            "Memory backend resolved to '{}' (configured='{}', character_configured={})",
-            backend,
-            config.memory.backend,
-            bool(config.character),
+        self._heartbeat_manager = HeartbeatManager(
+            dispatch_fn=self._gateway.dispatch_and_wait,
+            events=config.heartbeat,
         )
-        if config.memory.backend == "auto" and backend == "file":
-            logger.info("Auto memory backend selected 'file'; set memory.backend='history_tree' to enable HistoryTree")
-        if backend == "file":
-            memory_store = FileMemoryStore(
-                memory_dir=self._paths.memory_dir,
-                character_name=config.character,
-                max_recent=config.context.max_history_messages,
-                share_direct_memories=config.memory.file.share_direct_memories,
-            )
-        elif backend == "history_tree":
-            memory_store = HistoryTreeStore(
-                base_url=config.memory.history_tree.base_url,
-                timeout_s=config.memory.history_tree.timeout_s,
-                top_k=config.memory.history_tree.top_k,
-                rerank=config.memory.history_tree.rerank,
-                query_graph=config.memory.history_tree.query_graph,
-                ingest_graph=config.memory.history_tree.ingest_graph,
-                character_name=config.character,
-            )
 
-        memory_hook = MemoryHook(
-            store=memory_store,
+        # 供 adapter.on_mount() 查詢的執行期服務
+        self._services = ServiceRegistry()
+        self._services.register(HeartbeatManager, self._heartbeat_manager)
+        self._services.register(NodeManager, self._node_manager)
+        self._services.register(SessionManager, self._gateway.session_manager)
+        self._services.register(SessionService, self._gateway.session_manager)
+        self._services.register(ConversationService, conversation_service)
+        if self._voice_service is not None:
+            self._services.register(VoiceService, self._voice_service)
+            self._services.register(VoiceServiceProtocol, self._voice_service)
+
+    def _register_builtin_hooks(self, config: WaifuConfig) -> MemoryHook:
+        """根據 config 掛載內建 hooks，回傳 MemoryHook（供 /new 清除記憶）"""
+        memory_store = config.memory.build(
+            character=config.character,
             max_history=config.context.max_history_messages,
+            memory_dir=self._paths.memory_dir,
         )
-        self._memory_hook = memory_hook
+        logger.info(
+            "Memory backend '{}' → {}",
+            config.memory.backend,
+            type(memory_store).__name__ if memory_store is not None else "in-memory (no persistence)",
+        )
+        memory_hook = MemoryHook(store=memory_store, max_history=config.context.max_history_messages)
         self._hook_registry.register(memory_hook)
-        emohook = EmotionHook()
-        self._hook_registry.register(emohook)
-        if self._voice_service is not None and self._voice_service.has_tts:
-            self._hook_registry.register(TTSHook(self._voice_service, emohook))
-        self._hook_registry.register(LoggingHook())
+
+        hooks = config.hooks
+        if hooks.rate_limit_rpm:
+            self._hook_registry.register(RateLimitHook(max_rpm=hooks.rate_limit_rpm))
+
+        emotion_hook: Optional[EmotionHook] = None
+        if hooks.emotion:
+            emotion_hook = EmotionHook()
+            self._hook_registry.register(emotion_hook)
+
+        if hooks.tts and self._voice_service is not None and self._voice_service.has_tts:
+            tts_hook = TTSHook(self._voice_service, clean=self._output.apply, emotion_hook=emotion_hook)
+            self._hook_registry.register(tts_hook)
+
+        if hooks.logging:
+            self._hook_registry.register(LoggingHook())
+        return memory_hook
 
     def _register_builtin_tools(self) -> None:
         """將 waifu/tool/ 下的內建工具預先注冊到 PluginRegistry"""
@@ -410,16 +321,14 @@ class Waifu:
         self._plugin_registry.add_tool(make_cron_tool(self._cron_store))
 
     def mount(self, adapter: BaseGatewayAdapter) -> "Waifu":
-        """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP）"""
+        """掛載 Gateway Adapter（WebSocket / Discord / Telegram / HTTP / 第三方）"""
+        adapter.on_mount(self._services)
         self._gateway.mount(adapter)
-        from waifu.gateway.adapters.waifu_node import WaifuNodeAdapter
-        from waifu.gateway.adapters.websocket import WebSocketAdapter
-
-        if isinstance(adapter, WaifuNodeAdapter):
-            self._node_manager.wire(adapter)
-        if isinstance(adapter, WebSocketAdapter):
-            adapter.set_heartbeat_manager(self._heartbeat_manager)
         return self
+
+    @property
+    def services(self) -> ServiceRegistry:
+        return self._services
 
     @property
     def heartbeat_manager(self) -> HeartbeatManager:
@@ -438,24 +347,19 @@ class Waifu:
     async def start(self) -> None:
         """啟動所有已掛載的 Adapter，並恢復非 config 的持久化狀態"""
         self._started_at = time.time()
-        self._collect_capabilities()
         self._import_cards_on_startup()
         await self._restore_persistent_state()
+        self._gateway.capabilities.update(self._hook_registry.capabilities())
         await self._cron_scheduler.start()
         if not self._localmode:
             await self._gateway.start()
 
     async def stop(self) -> None:
-        """停止 Scheduler 與 Gateway"""
+        """停止 Scheduler、Gateway 與 MCP 連線"""
         await self._cron_scheduler.stop()
         await self._gateway.stop()
-
-    def _collect_capabilities(self) -> None:
-        """收集所有 hook/plugin 的 capabilities 寫入 GatewayCore"""
-        for hook in self._hook_registry.hooks:
-            caps = getattr(hook, "capabilities", None)
-            if isinstance(caps, dict):
-                self._gateway.capabilities.update(caps)
+        await self._auto_title.wait_idle()
+        await self._mcp_manager.shutdown()
 
     def _import_cards_on_startup(self) -> None:
         results, errors = self._character_service.import_all_cards(overwrite=False)
@@ -507,6 +411,10 @@ class Waifu:
         return self._config_service
 
     @property
+    def status_service(self) -> StatusService:
+        return self._status_service
+
+    @property
     def character_service(self) -> CharacterService:
         return self._character_service
 
@@ -551,24 +459,25 @@ class Waifu:
         request: "IncomingRequest | MessageParts",
         *,
         conversation_id: Optional[str] = None,
-        reply_fn: Optional[Any] = None,
+        reply_fn: Optional[ReplyFn] = None,
     ) -> OutgoingResponse:
+        """送出請求並等待回應；與 adapter 進來的訊息一樣經過該對話的 Lane"""
         if isinstance(request, MessageParts):
             request = request.to_request(
                 conversation_id=conversation_id,
                 reply_fn=reply_fn,
             )
-        return await self._dispatch(request)
+        return await self._gateway.dispatch_and_wait(request)
 
     @property
     def started_at(self) -> float:
         return self._started_at
 
-    async def _dispatch(self, request: IncomingRequest, *, skip_auto_title: bool = False) -> OutgoingResponse:
+    async def _dispatch(self, request: IncomingRequest) -> OutgoingResponse:
         """
-        完整請求生命週期：
+        單一請求的完整生命週期（由 Lane 呼叫，同一對話保證串行）：
           Session → HookPipeline.pre → ContextBuilder → AgentRunner
-          → HookPipeline.post → OutgoingResponse
+          → OutputPipeline → HookPipeline.mid → 持久化 → HookPipeline.post → OutgoingResponse
         """
         command_response = await self._command_service.try_execute(request)
         if command_response is not None:
@@ -582,9 +491,11 @@ class Waifu:
         # Ensure the conversation row exists in DB
         is_new_conversation = conversation is None
         if is_new_conversation:
+            # 標題暫時為 conversation_id，由 AutoTitleService 於回覆後命名
             self._conversation_store.create_with_id(
                 request.conversation_id,
                 title=request.conversation_id,
+                auto_title=True,
             )
             if request.metadata:
                 session.metadata.update(request.metadata)
@@ -630,9 +541,9 @@ class Waifu:
         # based on the *truncated* initial_messages, so slicing by history_len
         # would skip user_msg when len(ctx.messages) >= max_history_messages.
         # _persist_new_messages already skips role=="user" so no double-save.
-        new_waifu_msgs = [_to_waifu_message(m) for m in context_manager.history[history_len:]]
-
-        ctx.new_messages = new_waifu_msgs
+        ctx.new_messages = self._clean_for_history(
+            [_to_waifu_message(m) for m in context_manager.history[history_len:]]
+        )
         ctx = await self._hook_pipeline.run_mid(ctx)
 
         session.add_messages(ctx.new_messages)
@@ -640,26 +551,24 @@ class Waifu:
 
         ctx = await self._hook_pipeline.run_post(ctx)
 
-        display_content = _EMOTION_TAG_RE.sub("", ctx.response or final_content).strip()
-
-        # title 仍等於 conversation_id 代表還未命名 → 背景生成標題並推送給前端
-        conv = self._conversation_store.get(request.conversation_id)
-        if conv is not None and str(conv.title) == request.conversation_id and final_content and not skip_auto_title:
-            asyncio.create_task(
-                self._auto_title(
-                    request.conversation_id,
-                    request.content,
-                    final_content,
-                    reply_fn=request.reply_fn,
-                )
-            )
+        display_content = self._output.apply(ctx.response or final_content).strip()
+        self._auto_title.schedule(request, display_content)
 
         return self._build_response(request, content=display_content, ctx=ctx)
 
-    async def _run_agent(self, ctx: HookContext, system_prompt: str, tools: Any, context_manager: Any) -> Any:
+    def _clean_for_history(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """存入歷史前，對 assistant 文字套用 OutputTransformer（例如移除情緒標籤）"""
+        for msg in messages:
+            if isinstance(msg, AssistantMessage) and msg.content:
+                msg.content = self._output.apply_history(msg.content).strip()
+        return messages
+
+    async def _run_agent(
+        self, ctx: HookContext, system_prompt: str, tools: Any, context_manager: Any
+    ) -> Any:
         request = ctx.request
         try:
-            return await self._agent_runner.run(ctx, system_prompt, tools, context_manager)
+            return await self._agent_runner.run(ctx, system_prompt, tools, context_manager, self._output.stream())
         except asyncio.CancelledError:
             logger.warning(
                 "Request {} cancelled (client disconnected), writing interrupt placeholder",
@@ -680,7 +589,7 @@ class Waifu:
             ctx.response = fallback
             return self._build_response(request, content=fallback, ctx=ctx)
 
-    def _persist_new_messages(self, conversation_id: str, new_messages: list, usage: Any) -> None:
+    def _persist_new_messages(self, conversation_id: str, new_messages: List[BaseMessage], usage: Any) -> None:
         assistant_indices = [i for i, m in enumerate(new_messages) if m.role == "assistant"]
         last_assistant_idx = assistant_indices[-1] if assistant_indices else -1
         for i, msg in enumerate(new_messages):
@@ -693,35 +602,6 @@ class Waifu:
                 input_tokens=usage.input if is_last_assistant else None,
                 output_tokens=usage.output if is_last_assistant else None,
             )
-
-    async def _auto_title(
-        self,
-        conversation_id: str,
-        user_msg: str,
-        assistant_reply: str,
-        *,
-        reply_fn: Any,
-    ) -> None:
-        import inspect
-
-        title = await self._utility_ai.generate_title(user_msg, assistant_reply)
-        if not title:
-            return
-
-        self._conversation_store.update_title(conversation_id, title)
-        logger.info("Auto-titled conversation {} → '{}'", conversation_id[:8], title)
-
-        event = {
-            "event": "title_update",
-            "data": {"conversation_id": conversation_id, "title": title},
-        }
-        try:
-            if inspect.iscoroutinefunction(reply_fn):
-                await reply_fn(event=event)
-            else:
-                reply_fn(event=event)
-        except Exception:
-            logger.debug("title_update event could not be delivered (connection closed?)")
 
     def _restore_session_history(self, conversation_id: str, session: Any) -> None:
         history = self._conversation_store.get_llm_messages(conversation_id, limit=0)
@@ -738,5 +618,4 @@ class Waifu:
             content=content,
             trace=ctx.trace,
             events=ctx.events,
-            reply_fn=request.reply_fn,
         )

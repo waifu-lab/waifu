@@ -1,16 +1,27 @@
 import asyncio
 import base64
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set
 
 from waifu.logger import logger
-from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import (
+    Attachment,
+    BaseGatewayAdapter,
+    ConversationMode,
+    Event,
+    Feature,
+    GatewayProtocol,
+    IncomingRequest,
+    OutgoingResponse,
+    ReplyFn,
+    Sender,
+    ServiceProvider,
+    SessionMeta,
+)
 
 if TYPE_CHECKING:
-    from fastapi import FastAPI
     from fastapi.websockets import WebSocket
 
-    from waifu.gateway.core import GatewayCore
     from waifu.heartbeat.manager import HeartbeatManager
     from waifu.voice.service import VoiceService
 
@@ -20,9 +31,10 @@ class WebSocketAdapter(BaseGatewayAdapter):
     FastAPI WebSocket Adapter — SESSION 模式
 
     支援以下輸入訊息：
-      { type: "chat",  conversation_id?, request_id?, content, attachments?: [...] }
+      { type: "chat",  conversation_id?, request_id?, content, attachments?: [...], live2d?, need_lipsync? }
       { type: "voice", conversation_id?, request_id?, audio: "<b64>", format: "webm" }
       { type: "event", name: "<event_name>", data: {...} }   ← heartbeat 觸發
+      { type: "live2dsync", expressions: [...] }
 
     voice 訊息會先呼叫 VoiceService.transcribe() 轉為文字，再以正常 chat 流程處理。
     event 訊息路由到 HeartbeatManager，由各 handler 決定如何回應。
@@ -36,35 +48,38 @@ class WebSocketAdapter(BaseGatewayAdapter):
 
     @classmethod
     def from_gateway_config(cls, _config: dict[str, object], **deps: object) -> "WebSocketAdapter | None":
+        del deps
         # Cannot disable
-        return cls(voice_service=deps.get("voice_service"))
+        return cls()
 
     def __init__(
         self,
         voice_service: Optional["VoiceService"] = None,
         character_name: str = "Assistant",
+        path: str = "/ws",
     ) -> None:
-        self._core: Optional["GatewayCore"] = None
+        self._core: Optional[GatewayProtocol] = None
         self._voice: Optional["VoiceService"] = voice_service
         self._heartbeat: Optional["HeartbeatManager"] = None
         self._connections: Dict[str, "WebSocket"] = {}  # session_token → websocket
         self._character_name = character_name
+        self._path = path
 
-    def set_heartbeat_manager(self, manager: "HeartbeatManager") -> None:
-        self._heartbeat = manager
+    def on_mount(self, services: ServiceProvider) -> None:
+        from waifu.heartbeat.manager import HeartbeatManager
+        from waifu.voice.service import VoiceService
 
-    async def start(self, core: "GatewayCore") -> None:
+        self._heartbeat = services.get(HeartbeatManager)
+        if self._voice is None:
+            self._voice = services.get(VoiceService)
+
+    def routers(self) -> List[Any]:
+        from waifu.router.ws import make_ws_router
+
+        return [make_ws_router(self, self._path)]
+
+    async def start(self, core: GatewayProtocol) -> None:
         self._core = core
-
-    async def send(self, response: OutgoingResponse) -> None:
-        pass
-
-    def mount(self, app: "FastAPI", path: str = "/ws") -> None:
-        adapter = self
-
-        @app.websocket(path)
-        async def ws_endpoint(websocket: "WebSocket") -> None:
-            await adapter.handle(websocket)
 
     async def handle(self, websocket: "WebSocket") -> None:
         await websocket.accept()
@@ -95,7 +110,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
         expressions: list = data.get("expressions", [])
         if self._core is not None:
             session = self._core.session_manager.get_or_create(session_token)
-            session.metadata["live2d_expressions"] = expressions
+            session.metadata[SessionMeta.LIVE2D_EXPRESSIONS] = expressions
             logger.debug("live2dsync: stored {} expressions for session {}", len(expressions), session_token)
         await websocket.send_json({"type": "live2dsync_ack", "count": len(expressions)})
 
@@ -106,9 +121,9 @@ class WebSocketAdapter(BaseGatewayAdapter):
         event_data: dict = data.get("data", {})
         if self._core is not None:
             ws_session = self._core.session_manager.get_or_create(session_token)
-            exprs = ws_session.metadata.get("live2d_expressions")
+            exprs = ws_session.metadata.get(SessionMeta.LIVE2D_EXPRESSIONS)
             if exprs:
-                event_data = {**event_data, "_live2d_expressions": exprs}
+                event_data = {**event_data, SessionMeta.LIVE2D_EXPRESSIONS: exprs}
         reply_fn = _make_heartbeat_reply_fn(websocket, self._character_name)
         asyncio.create_task(self._heartbeat.dispatch(event_name, event_data, session_token, session_token, reply_fn))
 
@@ -131,7 +146,6 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     for a in attachments
                 ],
             )
-        reply_fn = _make_ws_reply_fn(websocket, request_id)
 
         request = IncomingRequest(
             request_id=request_id,
@@ -141,9 +155,8 @@ class WebSocketAdapter(BaseGatewayAdapter):
             source=self.name,
             content=content,
             attachments=attachments,
-            live2d=bool(data.get("live2d", False)),
-            need_lipsync=bool(data.get("need_lipsync", False)),
-            reply_fn=reply_fn,
+            features=_parse_features(data),
+            reply_fn=_make_ws_reply_fn(websocket, request_id),
         )
 
         if self._core is not None:
@@ -176,6 +189,16 @@ class WebSocketAdapter(BaseGatewayAdapter):
             return None
 
 
+def _parse_features(data: Dict[str, Any]) -> Set[str]:
+    """wire format：features: [...]，或舊版布林欄位 live2d / need_lipsync"""
+    features = {str(f) for f in data.get("features") or []}
+    if data.get("live2d"):
+        features.add(Feature.LIVE2D)
+    if data.get("need_lipsync"):
+        features.add(Feature.LIPSYNC)
+    return features
+
+
 def _parse_attachments(data: Dict[str, Any]) -> list[Attachment]:
     attachments: list[Attachment] = []
     for raw in data.get("attachments", []):
@@ -194,30 +217,47 @@ def _parse_attachments(data: Dict[str, Any]) -> list[Attachment]:
     return attachments
 
 
-def _make_heartbeat_reply_fn(websocket: "WebSocket", name: str = "Assistant"):
-    async def reply_fn(content: str | None = None, *, event: dict | None = None, **_) -> None:
-        if event is not None:
-            await websocket.send_json({"type": "event", **event})
-        elif content is not None:
-            await websocket.send_json({"type": "event", "event": "dialogue", "data": {"name": name, "text": content}})
-
-    return reply_fn
+def _event_frame(event: Event) -> Dict[str, Any]:
+    return {"type": "event", **event.model_dump()}
 
 
-def _make_ws_reply_fn(websocket: "WebSocket", request_id: str):
+def _make_heartbeat_reply_fn(websocket: "WebSocket", name: str = "Assistant") -> ReplyFn:
+    """heartbeat 回覆以 dialogue 事件呈現，不送 chunk / done"""
+
     async def reply_fn(
         response: Optional[OutgoingResponse] = None,
         *,
         chunk: Optional[str] = None,
-        event: Optional[dict] = None,
+        event: Optional[Event] = None,
+    ) -> None:
+        del chunk
+        if event is not None:
+            await websocket.send_json(_event_frame(event))
+        elif response is not None:
+            for ev in response.events:
+                await websocket.send_json(_event_frame(ev))
+            if response.content:
+                await websocket.send_json(
+                    _event_frame(Event(event="dialogue", data={"name": name, "text": response.content}))
+                )
+
+    return reply_fn
+
+
+def _make_ws_reply_fn(websocket: "WebSocket", request_id: str) -> ReplyFn:
+    async def reply_fn(
+        response: Optional[OutgoingResponse] = None,
+        *,
+        chunk: Optional[str] = None,
+        event: Optional[Event] = None,
     ) -> None:
         if chunk is not None:
             await websocket.send_json({"type": "chunk", "request_id": request_id, "content": chunk})
         elif event is not None:
-            await websocket.send_json({"type": "event", **event})
+            await websocket.send_json(_event_frame(event))
         elif response is not None:
             for ev in response.events:
-                await websocket.send_json({"type": "event", **ev})
+                await websocket.send_json(_event_frame(ev))
             await websocket.send_json({"type": "done", "request_id": response.request_id, "content": response.content})
 
     return reply_fn

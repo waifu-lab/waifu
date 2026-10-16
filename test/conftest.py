@@ -4,8 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from waifu_types import ConversationMode, IncomingRequest
-from waifu_types.types import Sender
+from waifu_types import ConversationMode, IncomingRequest, Sender
 
 
 def load_config():
@@ -36,24 +35,33 @@ def waifu_config():
 
 
 @pytest.fixture(scope="module")
-async def waifu(waifu_config):
+def isolated_paths():
+    from waifu.store import AppPaths
+
+    with tempfile.TemporaryDirectory() as d:
+        paths = AppPaths(data_dir=Path(d) / "data", config_dir=Path(d) / "config")
+        paths.ensure_dirs()
+        yield paths
+
+
+@pytest.fixture(scope="module")
+async def waifu(waifu_config, isolated_paths):
     """Headless Waifu instance (no gateway adapters). Shared within a module."""
     from waifu.waifu import Waifu
 
-    w = Waifu(waifu_config)
+    w = Waifu(waifu_config, paths=isolated_paths)
     yield w
 
 
 @pytest.fixture(scope="module")
-async def waifu_started(waifu_config):
+async def waifu_started(waifu_config, isolated_paths):
     """Waifu with start() called (loads MCP, plugins, cron). localmode=True skips gateway bind."""
     from waifu.waifu import Waifu
 
-    w = Waifu(waifu_config, localmode=True)
+    w = Waifu(waifu_config, paths=isolated_paths, localmode=True)
     await w.start()
     yield w
     await w.stop()
-
 
 
 @pytest.fixture()
@@ -84,5 +92,5 @@ def make_request(
         sender=Sender(user_id=user_id, display_name=display_name),
         source=source,
         content=content,
-        reply_fn=lambda **kw: chunks.append(kw.get("chunk", "")),
+        reply_fn=lambda *_, **kw: chunks.append(kw.get("chunk", "")),
     )

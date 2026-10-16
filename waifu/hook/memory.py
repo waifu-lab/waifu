@@ -1,7 +1,9 @@
 import inspect
 from typing import Dict, List, Optional, Protocol, runtime_checkable
 
-from waifu_types import BaseHook, BaseMessage, ConversationMode, HookContext
+from waifu_types import BaseHook, BaseMessage, ConversationMode, HookContext, SystemPromptLayers
+
+_RELATIONSHIP_KEY = "memory.relationship"
 
 
 @runtime_checkable
@@ -25,13 +27,10 @@ class MemoryHook(BaseHook):
     """
     對話歷史持久化 Hook
 
-    pre ：從外部 store 載入歷史，注入 ctx.messages；若 store 支援關係層，注入 ctx.metadata
+    pre ：從外部 store 載入歷史，注入 ctx.messages；若 store 支援關係層，於 system prompt 加入關係描述
     post：將本輪新訊息寫回 store
 
-    store 介面（duck typing）：
-        async def load(key: str) -> List[Dict]
-        async def save(key: str, messages: List[Dict]) -> None
-        async def get_relationship(key: str) -> str  (optional)
+    store 介面見 MemoryStore / ContextualMemoryStore / RelationshipMemoryStore Protocol
 
     預設使用內建的 InMemoryStore（無持久化，重啟清空）
     傳入 FileMemoryStore / Redis / SQLite store 即可替換
@@ -79,15 +78,21 @@ class MemoryHook(BaseHook):
         if inspect.isawaitable(result):
             await result
 
+    # TODO: not so useful
+    def contribute_prompt(self, ctx: HookContext, layers: SystemPromptLayers) -> None:
+        relationship = ctx.metadata.get(_RELATIONSHIP_KEY)
+        if relationship:
+            layers.identity.append(f"## 與當前對話者的關係\n{relationship}")
+
     async def _inject_relationship(self, ctx: HookContext, store: RelationshipMemoryStore) -> None:
-        """從 store 取得關係層，注入 ctx.metadata["relationship"]"""
+        """從 store 取得關係層，暫存到 ctx.metadata，由 contribute_prompt 放進 system prompt"""
         if ctx.request.mode == ConversationMode.session:
             return
 
         direct_key = f"{ctx.request.source}:dm:{ctx.request.sender.user_id}"
         relationship = await store.get_relationship(direct_key)
         if relationship:
-            ctx.metadata["relationship"] = relationship
+            ctx.metadata[_RELATIONSHIP_KEY] = relationship
 
     async def _load_history(self, ctx: HookContext, key: str) -> List[BaseMessage]:
         if isinstance(self._store, ContextualMemoryStore):

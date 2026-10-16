@@ -12,13 +12,8 @@ if TYPE_CHECKING:
 from waifu.logger import logger
 from waifu.store import AppPaths
 
-_BUILTIN_SYSTEM_PROMPT = """
-Current time: {now}
-Time zone: {UTC}
-User ID: {user_id}
-User display name: {display_name}
-Source: {source}
 
+_BUILTIN_SYSTEM_PROMPT = """
 ## Identity and Personality
 - You are not a generic assistant. You are a close, dependable, anime-style companion.
 - You speak with warmth, softness, and a light personal touch while remaining clear, capable, and useful.
@@ -108,6 +103,7 @@ async def _compact_messages(messages: List[AppMessage]) -> List[AppMessage]:
     return messages
 
 
+# TODO: call api(HAI)
 def _estimate_tokens(messages: List[AppMessage]) -> int:
     """粗估 token 數（chars / 4），不呼叫 API。"""
     total = 0
@@ -133,24 +129,23 @@ def _format_utc_offset(offset: Optional[timedelta]) -> str:
 
 
 class ContextBuilder:
-    def __init__(self, config: "ContextConfig", hook_registry: "Optional[HookRegistry]" = None) -> None:
+    def __init__(
+        self,
+        config: "ContextConfig",
+        hook_registry: "Optional[HookRegistry]" = None,
+        paths: Optional[AppPaths] = None,
+    ) -> None:
         self.config = config
         self._hook_registry = hook_registry
+        self._paths = paths or AppPaths.resolve()
         self._soul_content: Optional[str] = None
 
     def set_soul_content(self, soul_content: Optional[str]) -> None:
         self._soul_content = soul_content
 
-    def _prompt_format_vars(self, ctx: HookContext) -> dict[str, str]:
-        now_dt = datetime.now().astimezone()
-        now = now_dt.strftime("%Y-%m-%d %H:%M:%S")
-        paths = AppPaths.resolve()
+    def _static_vars(self) -> dict[str, str]:
+        paths = self._paths
         return {
-            "now": now,
-            "UTC": _format_utc_offset(now_dt.utcoffset()),
-            "user_id": ctx.request.sender.user_id,
-            "display_name": ctx.request.sender.display_name,
-            "source": ctx.request.source,
             "settings_path": str(paths.data_dir),
             "data_dir": str(paths.data_dir),
             "config_dir": str(paths.config_dir),
@@ -158,23 +153,30 @@ class ContextBuilder:
             "gateway_config_path": str(paths.gateway_config_file),
         }
 
+    def _prompt_format_vars(self, ctx: HookContext) -> dict[str, str]:
+
+        now_dt = datetime.now().astimezone()
+        return {
+            **self._static_vars(),
+            "now": now_dt.strftime("%Y-%m-%d %H:%M"),
+            "UTC": _format_utc_offset(now_dt.utcoffset()),
+            "user_id": ctx.request.sender.user_id,
+            "display_name": ctx.request.sender.display_name,
+            "source": ctx.request.source,
+        }
+
     def build_system_prompt(self, ctx: HookContext) -> str:
         return self.build_system_prompt_layers(ctx).render()
 
     def build_system_prompt_layers(self, ctx: HookContext) -> SystemPromptLayers:
         prompt_vars = self._prompt_format_vars(ctx)
-        now = prompt_vars["now"]
         layers = SystemPromptLayers()
 
-        if _BUILTIN_SYSTEM_PROMPT:
-            layers.behavior_rules.append(_BUILTIN_SYSTEM_PROMPT.format(**prompt_vars))
+        if self.config.builtin_prompt:
+            layers.behavior_rules.append(_BUILTIN_SYSTEM_PROMPT.format(**self._static_vars()))
 
         if self._soul_content:
             layers.identity.append(self._soul_content)
-
-        relationship = ctx.metadata.get("relationship", "")
-        if relationship:
-            layers.identity.append(f"## 與當前對話者的關係\n{relationship}")
 
         user_template = self.config.system_prompt_template.strip()
         if user_template:
@@ -184,8 +186,11 @@ class ContextBuilder:
             for hook in self._hook_registry.hooks:
                 hook.contribute_prompt(ctx, layers)
 
-        layers.identity.append(
-            f"當前對話者: {ctx.request.sender.display_name} ({ctx.request.sender.user_id})\n當前時間: {now}"
+        layers.runtime.append(
+            "## Current Context\n"
+            f"Current time: {prompt_vars['now']} ({prompt_vars['UTC']})\n"
+            f"User: {prompt_vars['display_name']} ({prompt_vars['user_id']})\n"
+            f"Source: {prompt_vars['source']}"
         )
 
         return layers
@@ -197,19 +202,23 @@ class ContextBuilder:
             if config.history_strategy == "full":
                 return messages
 
+            # "summary" 尚未實作，目前與 "sliding" 相同
             max_msgs = config.max_history_messages
             msgs = messages[-max_msgs:] if len(messages) > max_msgs else list(messages)
             # TODO: 需處理真實TOKRN計算
             if config.context_token_budget is not None:
                 threshold = int(config.context_token_budget * config.compact_threshold)
-                if _estimate_tokens(msgs) > threshold:
+                estimated = _estimate_tokens(msgs)
+                if estimated > threshold:
                     before_len = len(msgs)
                     msgs = await _compact_messages(msgs)
                     logger.warning(
-                        "Context budget exceeded (threshold={}): compacted from {} to {} messages",
+                        "Context budget exceeded (~{} tokens > threshold {}); compaction not implemented, "
+                        "kept {} of {} messages",
+                        estimated,
                         threshold,
-                        before_len,
                         len(msgs),
+                        before_len,
                     )
 
             return msgs

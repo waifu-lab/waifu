@@ -32,8 +32,8 @@ def cmd_start(args: List[str]) -> None:
         sys.exit(1)
 
     paths = AppPaths.resolve()
-    config_path = paths.config_file if ns.config == "default" else ns.config
-    config = _load_config(config_path)
+    config_path = Path(paths.config_file if ns.config == "default" else ns.config)
+    config = _load_config(config_path, paths)
     gateway_config = _load_gateway_config(paths.gateway_config_file)
     host = ns.host or config.gateway.host
     port = ns.port or config.gateway.port
@@ -41,7 +41,7 @@ def cmd_start(args: List[str]) -> None:
     if ns.app:
         app_path = ns.app
     else:
-        app_path = _build_default_app(config, gateway_config, paths)
+        app_path = _build_default_app(config, gateway_config, paths, config_path)
 
     uvicorn.run(
         app_path,
@@ -53,23 +53,31 @@ def cmd_start(args: List[str]) -> None:
     )
 
 
-def _load_config(path: Union[str, Path]):
+def _load_config(config_path: Path, paths: AppPaths):
+    """
+    .toml：與 DB 同步後以 DB 為準（DB 是真實來源，toml 是使用者編輯介面）
+    .yaml / .json：一次性指定的設定檔，直接載入（啟動後寫入 DB）
+    """
     from waifu.config import WaifuConfig
-
-    config_path = Path(path)
-    if not config_path.exists():
-        print(f"Config file not found: {path}", file=sys.stderr)
-        sys.exit(1)
 
     suffix = config_path.suffix.lower()
     if suffix == ".toml":
+        from waifu.config.sync import ConfigError, ConfigSync
+        from waifu.store.models import Database
+        from waifu.store.repositories import AppConfigRepository
+
+        Database(paths.db_file).init()
         try:
-            import tomllib
-        except ImportError:
-            import tomli as tomllib  # type: ignore[no-redef]
-        with open(config_path, "rb") as f:
-            data = tomllib.load(f)
-    elif suffix in (".yaml", ".yml"):
+            return ConfigSync(AppConfigRepository(), config_path).load()
+        except ConfigError as exc:
+            print(f"Invalid config ({config_path}):\n{exc}", file=sys.stderr)
+            sys.exit(1)
+
+    if not config_path.exists():
+        print(f"Config file not found: {config_path}", file=sys.stderr)
+        sys.exit(1)
+
+    if suffix in (".yaml", ".yml"):
         import yaml
 
         with open(config_path) as f:
@@ -92,10 +100,11 @@ def _load_gateway_config(path: Union[str, Path]):
     return GatewayRuntimeConfig.load(Path(path))
 
 
-def _build_default_app(config, gateway_config, paths: AppPaths) -> str:
+def _build_default_app(config, gateway_config, paths: AppPaths, config_path: Path) -> str:
     import waifu._cli_app as cli_app_module
 
     cli_app_module._config = config
     cli_app_module._gateway_config = gateway_config
     cli_app_module._paths = paths
+    cli_app_module._config_path = config_path if config_path.suffix.lower() == ".toml" else None
     return "waifu._cli_app:app"

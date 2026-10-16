@@ -1,22 +1,11 @@
-from typing import Callable, Coroutine, Dict, List, Literal, Optional
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel
-
-from waifu.heartbeat.handler import GreetingPoolHandler, HeartbeatHandler, LLMHandler
+from waifu.config import HeartbeatEventConfig
+from waifu.heartbeat.handler import DispatchFn, GreetingPoolHandler, HeartbeatHandler, LLMHandler
 from waifu.logger import logger
-from waifu_types import IncomingRequest, OutgoingResponse
+from waifu_types import ReplyFn
 
-
-class HeartbeatEventConfig(BaseModel):
-    """單一 heartbeat 事件的設定。"""
-
-    event_name: str
-    kind: Literal["llm", "greeting_pool"]
-    prompt: Optional[str] = None  # kind=llm 時使用
-    pool: Optional[List[str]] = None  # kind=greeting_pool 時使用
-
-
-_DEFAULT_EVENTS: List[HeartbeatEventConfig] = [
+DEFAULT_EVENTS: List[HeartbeatEventConfig] = [
     HeartbeatEventConfig(
         event_name="active",
         kind="llm",
@@ -35,12 +24,12 @@ class HeartbeatManager:
 
     def __init__(
         self,
-        dispatch_fn: Callable[[IncomingRequest], Coroutine[None, None, OutgoingResponse]],
+        dispatch_fn: DispatchFn,
         events: Optional[List[HeartbeatEventConfig]] = None,
     ) -> None:
         self._dispatch = dispatch_fn
         self._handlers: Dict[str, HeartbeatHandler] = {}
-        for cfg in events if events is not None else _DEFAULT_EVENTS:
+        for cfg in events if events is not None else DEFAULT_EVENTS:
             self._handlers[cfg.event_name] = self._build_handler(cfg)
 
     def _build_handler(self, cfg: HeartbeatEventConfig) -> HeartbeatHandler:
@@ -65,7 +54,7 @@ class HeartbeatManager:
         data: dict,
         session_token: str,
         conversation_id: str,
-        reply_fn: Callable,
+        reply_fn: ReplyFn,
     ) -> None:
         handler = self._handlers.get(event_name)
         if handler is None:

@@ -4,12 +4,11 @@ import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Set
 
-from waifu_types import BaseGatewayAdapter, OutgoingResponse
+from waifu_types import BaseGatewayAdapter, GatewayProtocol, ServiceProvider
 
 if TYPE_CHECKING:
     from fastapi.websockets import WebSocket
 
-    from waifu.gateway.core import GatewayCore
     from waifu.node.manager import NodeManager
 
 from waifu.logger import logger
@@ -273,10 +272,12 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
         token: str = "",
         invoke_timeout_ms: int = 10000,
         ping_interval_s: int = 30,
+        path: str = "/node",
     ) -> None:
         self._token = token
         self._invoke_timeout = invoke_timeout_ms / 1000.0
         self._ping_interval = ping_interval_s
+        self._path = path
 
         # node_id → NodeSession
         self._sessions: Dict[str, NodeSession] = {}
@@ -284,6 +285,18 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
 
     def set_node_manager(self, manager: "NodeManager") -> None:
         self._node_manager = manager
+
+    def on_mount(self, services: ServiceProvider) -> None:
+        from waifu.node.manager import NodeManager
+
+        manager = services.get(NodeManager)
+        if manager is not None:
+            manager.wire(self)
+
+    def routers(self) -> List[Any]:
+        from waifu.router.waifu_node import make_waifu_node_router
+
+        return [make_waifu_node_router(self, self._path)]
 
     @property
     def nodes(self) -> List[NodeSession]:
@@ -326,11 +339,8 @@ class WaifuNodeAdapter(BaseGatewayAdapter):
             raise NodeNotConnectedError(f"node {node_id!r} is not connected")
         await session.sync_skill(skill_id, version, base_url, files, timeout_s)
 
-    async def start(self, core: "GatewayCore") -> None:
-        pass  # endpoint 由 router 掛載
-
-    async def send(self, response: OutgoingResponse) -> None:
-        pass  # 非對話 channel
+    async def start(self, core: GatewayProtocol) -> None:
+        pass  # endpoint 由 routers() 掛載；非對話 channel
 
     async def handle(self, websocket: "WebSocket") -> None:
         await websocket.accept()

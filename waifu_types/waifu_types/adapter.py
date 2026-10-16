@@ -1,10 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict
+from typing import Any, Dict, List
 
+from .gateway import GatewayProtocol
+from .services import ServiceProvider
 from .types import OutgoingResponse
-
-if TYPE_CHECKING:
-    from waifu.gateway.core import GatewayCore
 
 
 class BaseGatewayAdapter(ABC):
@@ -27,12 +26,19 @@ class BaseGatewayAdapter(ABC):
         del config, deps
         return None
 
-    @abstractmethod
-    async def start(self, core: "GatewayCore") -> None:
-        """掛載到 GatewayCore，開始監聽事件"""
+    def on_mount(self, services: ServiceProvider) -> None:  # noqa: B027
         ...
 
+    def routers(self) -> List[Any]:
+
+        return []
+
     @abstractmethod
-    async def send(self, response: OutgoingResponse) -> None:
-        """將 OutgoingResponse 傳送回對應的平台"""
+    async def start(self, core: GatewayProtocol) -> None: ...
+
+    async def stop(self) -> None:  # noqa: B027
         ...
+
+    async def send(self, response: OutgoingResponse) -> None:
+
+        raise NotImplementedError(f"adapter {self.name!r} does not support proactive send")

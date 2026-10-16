@@ -1,7 +1,7 @@
-from typing import List
+from typing import Any, Dict, List, Union
 
 from waifu.logger import logger
-from waifu_types import BaseHook, HookContext
+from waifu_types import BaseHook, HookContext, OutputTransformer
 
 
 class HookRegistry:
@@ -11,15 +11,30 @@ class HookRegistry:
         self._hooks: List[BaseHook] = []
 
     def register(self, hook: BaseHook) -> None:
+        if any(h.name == hook.name for h in self._hooks):
+            logger.warning("Hook name {!r} registered more than once", hook.name)
         self._hooks.append(hook)
         self._hooks.sort(key=lambda h: h.priority)
 
-    def unregister(self, name: str) -> None:
-        self._hooks = [h for h in self._hooks if h.name != name]
+    def unregister(self, hook: Union[BaseHook, str]) -> None:
+        """傳入 hook 實例只移除該實例；傳入名稱則移除所有同名 hook"""
+        if isinstance(hook, str):
+            self._hooks = [h for h in self._hooks if h.name != hook]
+        else:
+            self._hooks = [h for h in self._hooks if h is not hook]
 
     @property
     def hooks(self) -> List[BaseHook]:
         return list(self._hooks)
+
+    def output_transformers(self) -> List[OutputTransformer]:
+        return [t for h in self._hooks for t in h.output_transformers()]
+
+    def capabilities(self) -> Dict[str, Any]:
+        caps: Dict[str, Any] = {}
+        for hook in self._hooks:
+            caps.update(hook.capabilities())
+        return caps
 
 
 class HookPipeline:

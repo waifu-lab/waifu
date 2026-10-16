@@ -9,16 +9,14 @@ from waifu_types import Attachment
 if TYPE_CHECKING:
     from waifu.gateway.adapters.http import HTTPAdapter
 
-router = APIRouter(prefix="/chat", tags=["chat"])
-
 
 class ChatAttachment(BaseModel):
     """附件描述，data 與 url 二擇一。"""
 
     filename: str = ""
     content_type: str = "application/octet-stream"
-    data: str = ""   # base64 編碼的檔案內容
-    url: str = ""    # 遠端圖片 URL
+    data: str = ""  # base64 編碼的檔案內容
+    url: str = ""  # 遠端圖片 URL
 
 
 class ChatRequest(BaseModel):
@@ -45,7 +43,7 @@ def _parse_attachments(raw: List[ChatAttachment]) -> List[Attachment]:
 
 
 def make_chat_router(http_adapter: "HTTPAdapter") -> APIRouter:
-    """建立並回傳綁定特定 HTTPAdapter 的 router"""
+    router = APIRouter(prefix="/chat", tags=["chat"])
 
     @router.post("/")
     async def chat(body: ChatRequest) -> StreamingResponse:

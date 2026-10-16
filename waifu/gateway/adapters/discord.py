@@ -1,12 +1,20 @@
+import inspect
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
-
-from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
-
-if TYPE_CHECKING:
-    from waifu.gateway.core import GatewayCore
+from typing import Any, Optional
 
 from waifu.logger import logger
+from waifu_types import (
+    Attachment,
+    BaseGatewayAdapter,
+    CommandDefinition,
+    ConversationMode,
+    Event,
+    GatewayProtocol,
+    IncomingRequest,
+    OutgoingResponse,
+    ReplyFn,
+    Sender,
+)
 
 
 class DiscordAdapter(BaseGatewayAdapter):
@@ -66,10 +74,10 @@ class DiscordAdapter(BaseGatewayAdapter):
         self._token = token
         self._stream_edit = stream_edit
         self._group_sessions_per_user = group_sessions_per_user
-        self._core: Optional["GatewayCore"] = None
-        self._client: Optional[object] = None
+        self._core: Optional[GatewayProtocol] = None
+        self._client: Optional[Any] = None
 
-    async def start(self, core: "GatewayCore") -> None:  # noqa: C901
+    async def start(self, core: GatewayProtocol) -> None:  # noqa: C901
         import asyncio
 
         import discord
@@ -87,15 +95,9 @@ class DiscordAdapter(BaseGatewayAdapter):
         command_service = core.command_service
         if command_service is not None:
             for definition in command_service.definitions:
-                if definition.name == "model":
-                    callback = _make_discord_model_command_callback(core, self._group_sessions_per_user)
-                    callback = app_commands.describe(model="Optional model name")(callback)
-                else:
-                    callback = _make_discord_command_callback(
-                        core,
-                        definition.name,
-                        self._group_sessions_per_user,
-                    )
+                callback = _make_discord_command_callback(core, definition, self._group_sessions_per_user)
+                if definition.arguments:
+                    callback = app_commands.describe(**{a.name: a.description for a in definition.arguments})(callback)
                 tree.add_command(
                     app_commands.Command(
                         name=definition.name,
@@ -176,42 +178,42 @@ class DiscordAdapter(BaseGatewayAdapter):
         # discord.py 的 start() 會 block，用 asyncio.create_task 背景執行
         asyncio.create_task(client.start(self._token))
 
-    async def send(self, response: OutgoingResponse) -> None:
-        # 傳送由每個訊息的 reply_fn 負責
-        pass
-
     async def stop(self) -> None:
         if self._client is not None:
-            await self._client.close()  # type: ignore[attr-defined]
+            await self._client.close()
 
 
-def _make_discord_command_callback(core: "GatewayCore", command_name: str, group_sessions_per_user: bool):
-    async def callback(interaction: Any) -> None:
+def _make_discord_command_callback(core: GatewayProtocol, definition: CommandDefinition, group_sessions_per_user: bool):
+    """依 definition.arguments 產生 slash command callback；每個參數對應一個字串選項"""
+    import discord
+
+    async def callback(interaction: Any, **options: Optional[str]) -> None:
+        args = " ".join(str(options[a.name]) for a in definition.arguments if options.get(a.name))
         await _dispatch_discord_interaction_command(
             core,
             interaction,
-            command_name,
+            definition.name,
+            args,
             group_sessions_per_user=group_sessions_per_user,
         )
 
-    return callback
-
-
-def _make_discord_model_command_callback(core: "GatewayCore", group_sessions_per_user: bool):
-    async def callback(interaction: Any, model: Optional[str] = None) -> None:
-        await _dispatch_discord_interaction_command(
-            core,
-            interaction,
-            "model",
-            model or "",
-            group_sessions_per_user=group_sessions_per_user,
+    # discord.py 由函式簽名推導 slash command 選項
+    params = [inspect.Parameter("interaction", inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=discord.Interaction)]
+    for arg in definition.arguments:
+        params.append(
+            inspect.Parameter(
+                arg.name,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=str if arg.required else Optional[str],
+                default=inspect.Parameter.empty if arg.required else None,
+            )
         )
-
+    callback.__signature__ = inspect.Signature(params)  # type: ignore[attr-defined]
     return callback
 
 
 async def _dispatch_discord_interaction_command(
-    core: "GatewayCore",
+    core: GatewayProtocol,
     interaction: Any,
     command_name: str,
     args: str = "",
@@ -240,7 +242,7 @@ async def _dispatch_discord_interaction_command(
         ),
         source=DiscordAdapter.name,
         content=content,
-        metadata={"platform_command": True, "platform_command_name": command_name},
+        platform_command=command_name,
         reply_fn=_make_discord_interaction_reply_fn(interaction),
     )
     await core.dispatch(request)
@@ -266,10 +268,12 @@ def _discord_group_conversation_id(channel_id: Any, user_id: Any, *, group_sessi
     return base
 
 
-def _make_discord_interaction_reply_fn(interaction: Any):
+def _make_discord_interaction_reply_fn(interaction: Any) -> ReplyFn:
     buffer: list[str] = []
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_) -> None:
+    async def reply_fn(
+        response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[Event] = None
+    ) -> None:
         if event is not None:
             return
         if chunk is not None:
@@ -291,7 +295,7 @@ def _make_discord_interaction_reply_fn(interaction: Any):
     return reply_fn
 
 
-def _make_discord_reply_fn(message: object, stream_edit: bool = True):
+def _make_discord_reply_fn(message: Any, stream_edit: bool = True) -> ReplyFn:
     """建立綁定到此 Discord 訊息的 reply_fn
 
     stream_edit=True：每次收到 chunk 時 edit 同一則訊息模擬串流
@@ -300,7 +304,9 @@ def _make_discord_reply_fn(message: object, stream_edit: bool = True):
     sent_message = None
     buffer: list[str] = []
 
-    async def reply_fn(response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_) -> None:
+    async def reply_fn(
+        response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[Event] = None
+    ) -> None:
         nonlocal sent_message, buffer
         if event is not None:
             return
@@ -309,16 +315,16 @@ def _make_discord_reply_fn(message: object, stream_edit: bool = True):
             buffer.append(chunk)
             content = "".join(buffer)
             if sent_message is None:
-                sent_message = await message.channel.send(content)  # type: ignore[attr-defined]
+                sent_message = await message.channel.send(content)
             else:
-                await sent_message.edit(content=content)  # type: ignore[attr-defined]
+                await sent_message.edit(content=content)
         elif response is not None:
             final = response.content or "".join(buffer)
             if not final:
                 return
             if sent_message is not None:
-                await sent_message.edit(content=final)  # type: ignore[attr-defined]
+                await sent_message.edit(content=final)
             else:
-                await message.channel.send(final)  # type: ignore[attr-defined]
+                await message.channel.send(final)
 
     return reply_fn

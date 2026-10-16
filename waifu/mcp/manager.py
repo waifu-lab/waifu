@@ -1,26 +1,28 @@
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List
 
 from waifu_types import BaseMCPAdapter
 
 from waifu.logger import logger
-from waifu.plugin import PluginRegistry
+
+if TYPE_CHECKING:
+    from hai.tool import Tool
+
+    from waifu.plugin import PluginRegistry
 
 
 class MCPManager:
-    def __init__(self, plugin_registry: PluginRegistry) -> None:
+    def __init__(self, plugin_registry: "PluginRegistry") -> None:
         self._plugin_registry = plugin_registry
         self._adapters: Dict[str, BaseMCPAdapter] = {}
-        self._tool_names: Dict[str, List[str]] = {}
+        self._tools: Dict[str, List["Tool"]] = {}
 
     async def add(self, name: str, adapter: BaseMCPAdapter) -> None:
         if name in self._adapters:
             raise ValueError(f"MCP server '{name}' already registered")
         await adapter.connect()
-        tools = await adapter.list_tools()
-        for tool in tools:
-            self._plugin_registry.add_tool(tool)
+        tools = [self._plugin_registry.add_tool(t) for t in await adapter.list_tools()]
         self._adapters[name] = adapter
-        self._tool_names[name] = [t.name for t in tools]
+        self._tools[name] = tools
         self._plugin_registry.add_mcp(name, adapter)
         logger.info("MCP '{}' connected ({} tools)", name, len(tools))
 
@@ -28,8 +30,8 @@ class MCPManager:
         adapter = self._adapters.pop(name, None)
         if adapter is None:
             return
-        for tool_name in self._tool_names.pop(name, []):
-            self._plugin_registry.remove_tool(tool_name)
+        for tool in self._tools.pop(name, []):
+            self._plugin_registry.remove_tool(tool.name, tool)
         self._plugin_registry.remove_mcp(name)
         try:
             await adapter.disconnect()

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Union, cast
 
 from peewee import CharField, DateTimeField, ForeignKeyField, IntegerField, TextField
 
-from waifu.store.models import Conversation, DailyTokenUsage, Message, MessageAttachment
+from waifu.store.models import Conversation, DailyTokenUsage, Message, MessageAttachment, TitleStatus
 from waifu_types import Attachment, MessageParts
 
 
@@ -64,8 +64,26 @@ class ConversationStore:
     def create(self, title: str) -> Conversation:
         return Conversation.create(title=title)
 
-    def create_with_id(self, id: str, title: str) -> Conversation:
-        return Conversation.create(id=id, title=title)
+    def create_with_id(self, id: str, title: str, *, auto_title: bool = False) -> Conversation:
+
+        status = TitleStatus.PENDING if auto_title else TitleStatus.SET
+        return Conversation.create(id=id, title=title, title_status=status)
+
+    def needs_auto_title(self, id: str) -> bool:
+        return (
+            Conversation.select()
+            .where((Conversation.id == id) & (Conversation.title_status == TitleStatus.PENDING))
+            .exists()
+        )
+
+    def set_auto_title(self, id: str, title: str) -> bool:
+
+        n = (
+            Conversation.update(title=title, title_status=TitleStatus.SET)
+            .where((Conversation.id == id) & (Conversation.title_status == TitleStatus.PENDING))
+            .execute()
+        )
+        return n > 0
 
     def get(self, id: str) -> Optional[Conversation]:
         return Conversation.get_or_none(Conversation.id == id)
@@ -89,7 +107,7 @@ class ConversationStore:
 
     def update_title(self, id: str, title: str) -> bool:
         """Update the title of a conversation. Returns True if the row existed."""
-        n = Conversation.update(title=title).where(Conversation.id == id).execute()
+        n = Conversation.update(title=title, title_status=TitleStatus.SET).where(Conversation.id == id).execute()
         return n > 0
 
     def delete(self, id: str) -> bool:

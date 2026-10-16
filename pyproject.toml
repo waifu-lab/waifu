@@ -28,6 +28,7 @@ dependencies = [
     "rich>=13.0",
     "shuvi>=0.1.2",
     "hydrogen-ai>=0.1.3",
+    "tomlkit>=0.13",
 ]
 
 [project.optional-dependencies]

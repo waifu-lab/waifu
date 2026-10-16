@@ -1,31 +1,19 @@
-import inspect
 import re
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Tuple
 
 from waifu.gateway.session import SessionManager
+from waifu.logger import logger
 from waifu.plugin import PluginRegistry
 from waifu.service.config import AppConfigService
 from waifu.service.mcp import MCPService
 from waifu.service.skill import SkillService
 from waifu.service.status import StatusService
-from waifu_types import IncomingRequest, OutgoingResponse
+from waifu_types import CommandArgument, CommandDefinition, CommandHandler, IncomingRequest, OutgoingResponse
 
 _COMMAND_RE = re.compile(r"^/([A-Za-z][\w-]*)(?:@[A-Za-z0-9_]+)?(?:\s+(.*))?$")
 
-
-@dataclass(frozen=True)
-class CommandArgument:
-    name: str
-    description: str
-    required: bool = False
-
-
-@dataclass(frozen=True)
-class CommandDefinition:
-    name: str
-    description: str
-    arguments: tuple[CommandArgument, ...] = ()
+ResetHandler = Callable[[str], Awaitable[None]]
 
 
 @dataclass(frozen=True)
@@ -35,6 +23,8 @@ class ParsedCommand:
 
 
 class CommandService:
+    """平台指令（/name args）；實作 waifu_types.CommandCatalog"""
+
     def __init__(
         self,
         *,
@@ -44,7 +34,6 @@ class CommandService:
         mcp_service: MCPService,
         skill_service: SkillService,
         config_service: AppConfigService,
-        memory_clear: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> None:
         self._status_service = status_service
         self._session_manager = session_manager
@@ -52,35 +41,47 @@ class CommandService:
         self._mcp_service = mcp_service
         self._skill_service = skill_service
         self._config_service = config_service
-        self._memory_clear = memory_clear
-        self._definitions = (
-            CommandDefinition("health", "Check Waifu health"),
-            CommandDefinition("status", "Show Waifu runtime status"),
-            CommandDefinition("tools", "List available tools"),
-            CommandDefinition("mcps", "List configured MCP servers"),
-            CommandDefinition("skills", "List installed skills"),
-            CommandDefinition(
-                "model",
-                "Show the current model",
-                arguments=(CommandArgument("model", "Optional model name", required=False),),
+        self._reset_handlers: List[ResetHandler] = []
+        self._commands: Dict[str, Tuple[CommandDefinition, CommandHandler]] = {}
+        builtins: List[Tuple[CommandDefinition, CommandHandler]] = [
+            (CommandDefinition("health", "Check Waifu health"), self._health),
+            (CommandDefinition("status", "Show Waifu runtime status"), self._status),
+            (CommandDefinition("tools", "List available tools"), self._tools),
+            (CommandDefinition("mcps", "List configured MCP servers"), self._mcps),
+            (CommandDefinition("skills", "List installed skills"), self._skills),
+            (
+                CommandDefinition(
+                    "model",
+                    "Show the current model",
+                    arguments=(CommandArgument("model", "Optional model name", required=False),),
+                ),
+                self._model,
             ),
-            CommandDefinition("models", "Show model discovery status"),
-            CommandDefinition("new", "Start a new context for this chat"),
-        )
-        self._handlers = {
-            "health": self._health,
-            "status": self._status,
-            "tools": self._tools,
-            "mcps": self._mcps,
-            "skills": self._skills,
-            "model": self._model,
-            "models": self._models,
-            "new": self._new,
-        }
+            (CommandDefinition("models", "Show model discovery status"), self._models),
+            (CommandDefinition("new", "Start a new context for this chat"), self._new),
+        ]
+        for definition, handler in builtins:
+            self.register(definition, handler)
 
     @property
-    def definitions(self) -> tuple[CommandDefinition, ...]:
-        return self._definitions
+    def definitions(self) -> Tuple[CommandDefinition, ...]:
+        return tuple(definition for definition, _ in self._commands.values())
+
+    def register(self, definition: CommandDefinition, handler: CommandHandler) -> None:
+
+        if definition.name in self._commands:
+            logger.warning("Command /{} registered more than once, overriding", definition.name)
+        self._commands[definition.name] = (definition, handler)
+
+    def unregister(self, name: str, handler: Optional[CommandHandler] = None) -> None:
+
+        current = self._commands.get(name)
+        if current is not None and (handler is None or current[1] is handler):
+            del self._commands[name]
+
+    def on_reset(self, handler: ResetHandler) -> None:
+
+        self._reset_handlers.append(handler)
 
     def parse(self, content: str) -> Optional[ParsedCommand]:
         match = _COMMAND_RE.match(content.strip())
@@ -95,13 +96,13 @@ class CommandService:
         if parsed is None:
             return None
 
-        handler = self._handlers.get(parsed.name)
-        if handler is None:
-            if request.metadata.get("platform_command"):
+        command = self._commands.get(parsed.name)
+        if command is None:
+            if request.platform_command:
                 return self._response(request, self._unknown_command(parsed.name))
             return None
 
-        content = await handler(request, parsed.args)
+        content = await command[1](request, parsed.args)
         return self._response(request, content)
 
     async def _health(self, _request: IncomingRequest, _args: str) -> str:
@@ -190,14 +191,12 @@ class CommandService:
 
     async def _new(self, request: IncomingRequest, _args: str) -> str:
         self._session_manager.delete(request.conversation_id)
-        if self._memory_clear is not None:
-            result = self._memory_clear(request.conversation_id)
-            if inspect.isawaitable(result):
-                await result
+        for handler in self._reset_handlers:
+            await handler(request.conversation_id)
         return "Started a new context for this chat."
 
     def _unknown_command(self, name: str) -> str:
-        available = ", ".join(f"/{d.name}" for d in self._definitions)
+        available = ", ".join(f"/{d.name}" for d in self.definitions)
         return f"Unknown command: /{name}\nAvailable commands: {available}"
 
     @staticmethod
@@ -207,7 +206,6 @@ class CommandService:
             conversation_id=request.conversation_id,
             source=request.source,
             content=content,
-            reply_fn=request.reply_fn,
         )
 
 

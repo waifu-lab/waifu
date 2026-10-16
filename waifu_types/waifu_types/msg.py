@@ -4,9 +4,9 @@ import base64
 import mimetypes
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from waifu_types.types import Attachment, ConversationMode, IncomingRequest, Sender, UserMessage
+from waifu_types.types import Attachment, ConversationMode, IncomingRequest, ReplyFn, Sender, UserMessage
 
 _SUPPORTED_FILE_TYPES = {
     "application/pdf",
@@ -28,6 +28,10 @@ _SUPPORTED_FILE_TYPES = {
 # Only PDF is accepted as a binary file block by the OpenAI API.
 # All other supported types are text-decodable and sent as text content.
 _FILE_BLOCK_TYPES = {"application/pdf"}
+
+
+async def _noop_reply(*_args: Any, **_kwargs: Any) -> None:
+    pass
 
 
 def _to_data_url(att: Attachment) -> str:
@@ -90,13 +94,11 @@ class MessageParts:
         mode: ConversationMode = ConversationMode.session,
         sender: Optional[Sender] = None,
         source: str = "sdk",
-        reply_fn: Optional[Callable] = None,
+        reply_fn: Optional[ReplyFn] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> IncomingRequest:
         if reply_fn is None:
-            async def _noop(**kwargs: Any) -> None:
-                pass
-            reply_fn = _noop
+            reply_fn = _noop_reply
 
         return IncomingRequest(
             conversation_id=conversation_id or str(uuid.uuid4()),

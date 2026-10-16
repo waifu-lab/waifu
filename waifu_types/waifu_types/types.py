@@ -1,10 +1,15 @@
+import inspect
 import uuid
 from enum import Enum
-from typing import Any, Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Awaitable, Dict, List, Literal, Optional, Protocol, Set, Union, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from waifu_types.keys import Feature
 from waifu_types.trace import BaseExecutionTrace
+
+ContentPart = Dict[str, Any]
+MessageContent = Union[str, List[ContentPart], None]
 
 
 # FROM shuvi/types.py
@@ -21,15 +26,12 @@ class ToolCall(BaseModel):
 
 class BaseMessage(BaseModel):
     role: str
-    content: str
+    content: MessageContent
 
 
 class UserMessage(BaseMessage):
     role: Literal["user"] = "user"
-    content: List[Dict[str, Any]]
-
-    def model_dump(self, *, exclude_none: bool = False) -> Dict[str, Any]:
-        return {"role": self.role, "content": self.content}
+    content: List[ContentPart]
 
 
 class AssistantMessage(BaseMessage):
@@ -40,11 +42,13 @@ class AssistantMessage(BaseMessage):
 
 class ToolMessage(BaseMessage):
     role: Literal["tool"] = "tool"
+    content: str
     tool_call_id: str
 
 
 class SystemMessage(BaseMessage):
     role: Literal["system"] = "system"
+    content: str
 
 
 LLMMessage = Union[UserMessage, AssistantMessage, ToolMessage]
@@ -54,6 +58,8 @@ class GenericMessage(BaseMessage):
     """Fallback for unknown/custom message roles. Preserves all extra fields."""
 
     model_config = ConfigDict(extra="allow")
+
+    content: MessageContent = None
 
 
 class ConversationMode(str, Enum):
@@ -74,6 +80,34 @@ class Attachment(BaseModel):
     url: Optional[str] = None  # 遠端 URL（Discord/Telegram CDN），與 data 二擇一
 
 
+class Event(BaseModel):
+    """推送給前端的事件，wire format 為 {"event": ..., "data": {...}}"""
+
+    event: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def coerce(cls, value: "Event | Dict[str, Any]") -> "Event":
+        return value if isinstance(value, Event) else cls.model_validate(value)
+
+
+@runtime_checkable
+class ReplyFn(Protocol):
+    def __call__(
+        self,
+        response: "Optional[OutgoingResponse]" = None,
+        *,
+        chunk: Optional[str] = None,
+        event: Optional[Event] = None,
+    ) -> Optional[Awaitable[None]]: ...
+
+
+async def _invoke_reply(fn: ReplyFn, *args: Any, **kwargs: Any) -> None:
+    result = fn(*args, **kwargs)
+    if inspect.isawaitable(result):
+        await result
+
+
 class IncomingRequest(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -81,14 +115,43 @@ class IncomingRequest(BaseModel):
     conversation_id: str
     mode: ConversationMode
     sender: Sender
-    source: str  # adapter 名稱（"websocket" / "discord" / ...）
+    source: str
+    """ adapter 名稱（"websocket" / "discord" / ...）"""
     content: str
     attachments: List[Attachment] = []
     metadata: Dict[str, Any] = {}
-    live2d: bool = False  # True 時啟用情緒解析、TTS 等 Live2D 功能
-    need_lipsync: bool = False  # True 時後端計算並送出 viseme（模型無原生 lipsync 時由前端設定）
-    # reply_fn(response: OutgoingResponse) 或 reply_fn(chunk=str) for streaming
-    reply_fn: Callable
+    features: Set[str] = Field(default_factory=set)
+    """前端能力旗標（見 waifu_types.keys.Feature），由各 hook 自行解讀"""
+    platform_command: Optional[str] = None
+    """由平台原生指令（Discord slash / Telegram command）觸發時為指令名稱"""
+    reply_fn: ReplyFn
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_feature_flags(cls, data: Any) -> Any:
+        """相容舊參數 live2d= / need_lipsync=，轉為 features"""
+        if not isinstance(data, dict) or ("live2d" not in data and "need_lipsync" not in data):
+            return data
+        data = dict(data)
+        features: Set[str] = set(data.get("features") or ())
+        if data.pop("live2d", False):
+            features.add(Feature.LIVE2D)
+        if data.pop("need_lipsync", False):
+            features.add(Feature.LIPSYNC)
+        data["features"] = features
+        return data
+
+    def has_feature(self, name: str) -> bool:
+        return name in self.features
+
+    async def reply_chunk(self, text: str) -> None:
+        await _invoke_reply(self.reply_fn, chunk=text)
+
+    async def reply_event(self, event: "Event | Dict[str, Any]") -> None:
+        await _invoke_reply(self.reply_fn, event=Event.coerce(event))
+
+    async def reply(self, response: "OutgoingResponse") -> None:
+        await _invoke_reply(self.reply_fn, response)
 
 
 class OutgoingResponse(BaseModel):
@@ -98,7 +161,5 @@ class OutgoingResponse(BaseModel):
     conversation_id: str
     source: str
     content: str
-    chunks: List[str] = []
     trace: Optional[BaseExecutionTrace] = None
-    events: List[Dict[str, Any]] = []  # Live2D emotion/action
-    reply_fn: Callable
+    events: List[Event] = []

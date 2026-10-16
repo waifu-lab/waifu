@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import Any, Dict, List
 
-if TYPE_CHECKING:
-    from hai.tool.toolcalling import Tool
+from waifu_types.tool import ToolLike
 
 
 class BaseMCPAdapter(ABC):
@@ -17,7 +16,7 @@ class BaseMCPAdapter(ABC):
         ...
 
     @abstractmethod
-    async def list_tools(self) -> "List[Tool]":
+    async def list_tools(self) -> List[ToolLike]:
         """回傳此 MCP Server 提供的 Tool"""
         ...
 

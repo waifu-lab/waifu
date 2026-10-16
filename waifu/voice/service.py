@@ -1,23 +1,33 @@
 import asyncio
 import base64
 import re
-from typing import TYPE_CHECKING, AsyncIterator, Dict, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator, Callable, Dict, List, Optional, Protocol
 
 import httpx
 
 from waifu.logger import logger
+from waifu_types import Event
 
 from .lipsync import build_lipsync_events
 
 if TYPE_CHECKING:
-    from hai.providers.providers import ProviderSTT, ProviderTTS
+    from hai.providers.providers import ProviderSTT
+
+    from waifu.config import VoiceConfig
 
     from .translator import DeepLTranslator
 
 _SENTENCE_SPLIT = re.compile(
     r"(?<=[。！？!?…])\s+|(?<=[。！？!?…])(?=\S)|(?<=\.)\s+(?=(?:['\"([{<]|[A-Z0-9\u4e00-\u9fff]))"
 )
-_EMOTION_TAG = re.compile(r"\[emotion:\w+\]", re.IGNORECASE)
+
+
+class TTSProvider(Protocol):
+    response_format: str
+
+    async def synthesize(self, text: str) -> bytes: ...
+
+    def synthesize_stream(self, text: str, chunk_size: int = 4096) -> AsyncIterator[bytes]: ...
 
 
 def _split_sentences(text: str) -> List[str]:
@@ -26,10 +36,21 @@ def _split_sentences(text: str) -> List[str]:
 
 
 class VoiceService:
+    @classmethod
+    def from_config(cls, config: "VoiceConfig") -> "VoiceService":
+        return cls(
+            stt=config.stt.build() if config.stt else None,
+            tts=config.tts.build() if config.tts else None,
+            lipsync_fps=config.lipsync_fps,
+            tts_timeout_retries=config.tts.timeout_retries if config.tts else 0,
+            tts_retry_backoff_s=config.tts.retry_backoff_s if config.tts else 0.0,
+            translator=config.translation.build() if config.translation else None,
+        )
+
     def __init__(
         self,
         stt: Optional["ProviderSTT"] = None,
-        tts: Optional["ProviderTTS"] = None,
+        tts: Optional[TTSProvider] = None,
         lipsync_fps: int = 20,
         tts_timeout_retries: int = 2,
         tts_retry_backoff_s: float = 0.5,
@@ -87,9 +108,14 @@ class VoiceService:
         async for chunk in self._tts.synthesize_stream(text, chunk_size=chunk_size):
             yield chunk
 
-    # TODO: 有點醜，也沒有用到stream
-    async def synthesize_sentences(self, text: str, need_lipsync: bool = False) -> AsyncIterator["SynthesisResult"]:
-        """切句後並行合成，依原順序 yield SynthesisResult。"""
+    # TODO: 尚未使用 synthesize_stream；可改為合成下一句的同時播放上一句
+    async def synthesize_sentences(
+        self,
+        text: str,
+        need_lipsync: bool = False,
+        clean: Optional[Callable[[str], str]] = None,
+    ) -> AsyncIterator["SynthesisResult"]:
+
         if self._tts is None:
             raise RuntimeError("VoiceService: TTS provider not configured")
 
@@ -100,12 +126,12 @@ class VoiceService:
         fmt = self._tts.response_format
 
         async def _one(sentence: str) -> "SynthesisResult | None":
-            tts_text = _EMOTION_TAG.sub("", sentence).strip()
-            if not tts_text:
+            spoken = (clean(sentence) if clean is not None else sentence).strip()
+            if not spoken:
                 return None
-            tts_text = await self._translate(tts_text)
+            tts_text = await self._translate(spoken)
             audio_bytes = await self._synthesize_with_retry(sentence, tts_text)
-            visemes = build_lipsync_events(sentence, frames=self._lipsync_fps) if need_lipsync else []
+            visemes = build_lipsync_events(spoken, frames=self._lipsync_fps) if need_lipsync else []
             return SynthesisResult(
                 audio_bytes=audio_bytes,
                 format=fmt,
@@ -113,7 +139,6 @@ class VoiceService:
                 sentence=sentence,
             )
 
-        # FIXME: 待修改 — 同時打所有句子，TTS provider 有 rate limit 時會炸
         for sentence in sentences:
             try:
                 result = await _one(sentence)
@@ -125,11 +150,13 @@ class VoiceService:
                 yield result
 
     async def _synthesize_with_retry(self, sentence: str, tts_text: str) -> bytes:
+        if self._tts is None:
+            raise RuntimeError("VoiceService: TTS provider not configured")
         attempts = self._tts_timeout_retries + 1
 
         for attempt in range(1, attempts + 1):
             try:
-                return await self._tts.synthesize(tts_text)  # type: ignore[union-attr]
+                return await self._tts.synthesize(tts_text)
             except httpx.TimeoutException as exc:
                 if attempt >= attempts:
                     raise
@@ -143,13 +170,13 @@ class VoiceService:
                 if self._tts_retry_backoff_s > 0:
                     await asyncio.sleep(self._tts_retry_backoff_s)
 
-    def build_audio_events(self, result: "SynthesisResult", emotion: Optional[str] = None) -> List[Dict]:
-        audio_b64 = base64.b64encode(result.audio_bytes).decode()
-        data: Dict = {"audio": audio_b64, "format": result.format}
+        raise RuntimeError("VoiceService: TTS retry loop exited without result")
 
-        events: List[Dict] = [{"event": "audio", "data": data}]
+    def build_audio_events(self, result: "SynthesisResult") -> List[Event]:
+        audio_b64 = base64.b64encode(result.audio_bytes).decode()
+        events = [Event(event="audio", data={"audio": audio_b64, "format": result.format})]
         if result.lipsync_events:
-            events.append({"event": "lipsync", "data": {"visemes": result.lipsync_events}})
+            events.append(Event(event="lipsync", data={"visemes": result.lipsync_events}))
         return events
 
 

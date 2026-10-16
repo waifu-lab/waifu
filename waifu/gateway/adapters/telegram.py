@@ -1,12 +1,18 @@
 import uuid
-from typing import TYPE_CHECKING, Optional
-
-from waifu_types import Attachment, BaseGatewayAdapter, ConversationMode, IncomingRequest, OutgoingResponse, Sender
-
-if TYPE_CHECKING:
-    from waifu.gateway.core import GatewayCore
+from typing import Any, Optional
 
 from waifu.logger import logger
+from waifu_types import (
+    Attachment,
+    BaseGatewayAdapter,
+    ConversationMode,
+    Event,
+    GatewayProtocol,
+    IncomingRequest,
+    OutgoingResponse,
+    ReplyFn,
+    Sender,
+)
 
 
 class TelegramAdapter(BaseGatewayAdapter):
@@ -75,11 +81,11 @@ class TelegramAdapter(BaseGatewayAdapter):
         self._trigger_command = trigger_command
         self._stream_edit = stream_edit
         self._group_sessions_per_user = group_sessions_per_user
-        self._core: Optional["GatewayCore"] = None
-        self._app: Optional[object] = None
+        self._core: Optional[GatewayProtocol] = None
+        self._app: Optional[Any] = None
         self._bot_username: Optional[str] = None
 
-    async def start(self, core: "GatewayCore") -> None:  # noqa: C901
+    async def start(self, core: GatewayProtocol) -> None:  # noqa: C901
         import asyncio
 
         from telegram import BotCommand, Update
@@ -92,7 +98,7 @@ class TelegramAdapter(BaseGatewayAdapter):
         adapter = self
         command_service = core.command_service
 
-        async def dispatch_update(update: Update, context: object, *, platform_command: bool = False) -> None:
+        async def dispatch_update(update: Update, context: Any, *, platform_command: bool = False) -> None:
             if not isinstance(update, Update) or update.message is None:
                 return
 
@@ -133,11 +139,6 @@ class TelegramAdapter(BaseGatewayAdapter):
 
             attachments = await _telegram_attachments(msg, context)
 
-            metadata = {}
-            if platform_command:
-                command_name = _telegram_command_name(text)
-                metadata = {"platform_command": True, "platform_command_name": command_name}
-
             request = IncomingRequest(
                 request_id=str(uuid.uuid4()),
                 conversation_id=conversation_id,
@@ -146,17 +147,17 @@ class TelegramAdapter(BaseGatewayAdapter):
                 source=adapter.name,
                 content=text,
                 attachments=attachments,
-                metadata=metadata,
+                platform_command=_telegram_command_name(text) if platform_command else None,
                 reply_fn=reply_fn,
             )
 
             if adapter._core is not None:
                 await adapter._core.dispatch(request)
 
-        async def on_message(update: Update, context: object) -> None:
+        async def on_message(update: Update, context: Any) -> None:
             await dispatch_update(update, context)
 
-        async def on_platform_command(update: Update, context: object) -> None:
+        async def on_platform_command(update: Update, context: Any) -> None:
             await dispatch_update(update, context, platform_command=True)
 
         if command_service is not None:
@@ -178,35 +179,33 @@ class TelegramAdapter(BaseGatewayAdapter):
                 )
             logger.info("Telegram adapter ready: @{}", me.username)
             await app.start()
-            await app.updater.start_polling()
+            if app.updater is not None:
+                await app.updater.start_polling()
 
         asyncio.create_task(_run())
 
-    async def send(self, response: OutgoingResponse) -> None:
-        pass
-
     async def stop(self) -> None:
         if self._app is not None:
-            await self._app.updater.stop()  # type: ignore[attr-defined]
-            await self._app.stop()  # type: ignore[attr-defined]
-            await self._app.shutdown()  # type: ignore[attr-defined]
+            await self._app.updater.stop()
+            await self._app.stop()
+            await self._app.shutdown()
 
 
-async def _telegram_attachments(msg: object, context: object) -> list[Attachment]:
+async def _telegram_attachments(msg: Any, context: Any) -> list[Attachment]:
     attachments: list[Attachment] = []
     try:
-        if msg.photo:  # type: ignore[attr-defined]
-            largest = msg.photo[-1]  # type: ignore[attr-defined]
-            tg_file = await context.bot.get_file(largest.file_id)  # type: ignore[attr-defined]
+        if msg.photo:
+            largest = msg.photo[-1]
+            tg_file = await context.bot.get_file(largest.file_id)
             data = bytes(await tg_file.download_as_bytearray())
             attachments.append(Attachment(filename="photo.jpg", content_type="image/jpeg", data=data))
-        elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):  # type: ignore[attr-defined]
-            tg_file = await context.bot.get_file(msg.document.file_id)  # type: ignore[attr-defined]
+        elif msg.document and msg.document.mime_type and msg.document.mime_type.startswith("image/"):
+            tg_file = await context.bot.get_file(msg.document.file_id)
             data = bytes(await tg_file.download_as_bytearray())
             attachments.append(
                 Attachment(
-                    filename=msg.document.file_name or "document",  # type: ignore[attr-defined]
-                    content_type=msg.document.mime_type,  # type: ignore[attr-defined]
+                    filename=msg.document.file_name or "document",
+                    content_type=msg.document.mime_type,
                     data=data,
                 )
             )
@@ -230,7 +229,7 @@ def _telegram_group_conversation_id(chat_id: object, user_id: object, *, group_s
 _TELEGRAM_STREAM_INTERVAL = 1.5
 
 
-def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
+def _make_telegram_reply_fn(message: Any, stream_edit: bool = True) -> ReplyFn:
     """建立綁定到此 Telegram 訊息的 reply_fn
 
     stream_edit=True：每隔 _TELEGRAM_STREAM_INTERVAL 秒 edit 一次訊息模擬串流；
@@ -244,7 +243,7 @@ def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
     last_edit: float = 0.0
 
     async def reply_fn(
-        response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[dict] = None, **_
+        response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[Event] = None
     ) -> None:
         nonlocal sent_message, buffer, last_edit
         if event is not None:
@@ -255,10 +254,10 @@ def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
             now = time.monotonic()
             try:
                 if sent_message is None:
-                    sent_message = await message.reply_text("".join(buffer))  # type: ignore[attr-defined]
+                    sent_message = await message.reply_text("".join(buffer))
                     last_edit = now
                 elif now - last_edit >= _TELEGRAM_STREAM_INTERVAL:
-                    await sent_message.edit_text("".join(buffer))  # type: ignore[attr-defined]
+                    await sent_message.edit_text("".join(buffer))
                     last_edit = now
             except Exception:
                 pass
@@ -268,9 +267,9 @@ def _make_telegram_reply_fn(message: object, stream_edit: bool = True):
                 return
             try:
                 if sent_message is not None:
-                    await sent_message.edit_text(final)  # type: ignore[attr-defined]
+                    await sent_message.edit_text(final)
                 else:
-                    await message.reply_text(final)  # type: ignore[attr-defined]
+                    await message.reply_text(final)
             except Exception:
                 pass
 

@@ -5,18 +5,11 @@ from fastapi import APIRouter, WebSocket
 if TYPE_CHECKING:
     from waifu.gateway.adapters.websocket import WebSocketAdapter
 
-router = APIRouter(tags=["websocket"])
 
+def make_ws_router(ws_adapter: "WebSocketAdapter", path: str = "/ws") -> APIRouter:
+    router = APIRouter(tags=["websocket"])
 
-def make_ws_router(ws_adapter: "WebSocketAdapter") -> APIRouter:
-    """建立並回傳綁定特定 WebSocketAdapter 的 router
-
-    EX：
-        ws_adapter = WebSocketAdapter()
-        app.include_router(make_ws_router(ws_adapter))
-    """
-
-    @router.websocket("/ws")
+    @router.websocket(path)
     async def ws_endpoint(websocket: WebSocket) -> None:
         await ws_adapter.handle(websocket)
 

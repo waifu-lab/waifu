@@ -4,7 +4,7 @@ import uuid
 from typing import TYPE_CHECKING, Callable, Coroutine, Optional
 
 from waifu.logger import logger
-from waifu_types import ConversationMode, IncomingRequest, OutgoingResponse, Sender
+from waifu_types import ConversationMode, Event, IncomingRequest, OutgoingResponse, Sender
 
 if TYPE_CHECKING:
     from waifu.store.models import CronJob
@@ -60,7 +60,7 @@ async def _noop_reply(
     response: Optional[OutgoingResponse] = None,
     *,
     chunk: Optional[str] = None,
-    event: Optional[dict] = None,
+    event: Optional[Event] = None,
 ) -> None:
     """離線情況的 reply_fn：結果已由 _dispatch 寫入 DB，無需即時推送。"""
     pass

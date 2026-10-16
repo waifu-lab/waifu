@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Dict, Optional, Protocol, runtime_checkable
 
+from waifu_types.command import CommandDefinition, CommandHandler
 from waifu_types.services import ConversationService, SessionService, VoiceServiceProtocol
+from waifu_types.tool import ToolLike
 
 if TYPE_CHECKING:
-    from hai.tool.toolcalling import Tool
     from waifu_types.adapter import BaseGatewayAdapter
     from waifu_types.hook import BaseHook
     from waifu_types.mcp import BaseMCPAdapter
@@ -25,15 +26,15 @@ class PluginContext(Protocol):
     """TTS / STT 服務；未設定時為 None"""
 
     def register_hook(self, hook: "BaseHook") -> None:
-        """向 HookRegistry 注冊 Hook"""
+        """註冊 Hook；插件停用 / 卸載時自動移除"""
         ...
 
-    def register_tool(self, tool: "Tool") -> None:
-        """向 PluginRegistry 注冊 Tool"""
+    def register_tool(self, tool: ToolLike) -> None:
+        """註冊 Tool（hai.tool.Tool 或 waifu_types.tool.FunctionTool）"""
         ...
 
-    def register_mcp(self, name: str, adapter: "BaseMCPAdapter") -> None:
-        """向 PluginRegistry 注冊 MCP Adapter"""
+    async def register_mcp(self, name: str, adapter: "BaseMCPAdapter") -> None:
+        """連線 MCP Server 並註冊其工具；插件卸載時自動斷線"""
         ...
 
     async def register_adapter(self, adapter: "BaseGatewayAdapter") -> None:
@@ -42,17 +43,19 @@ class PluginContext(Protocol):
         """
         ...
 
-    def register_adapter_type(self, adapter_type: type["BaseGatewayAdapter"]) -> None: ...
+    def register_adapter_type(self, adapter_type: type["BaseGatewayAdapter"]) -> None:
+        """註冊可由 gateway config 驅動的 adapter 類型"""
+        ...
+
+    def register_command(self, definition: CommandDefinition, handler: CommandHandler) -> None:
+        """註冊平台指令（/name args）；插件停用 / 卸載時自動移除"""
+        ...
 
 
 class BasePlugin(ABC):
     name: str
     version: str = "0.1.0"
     description: str = ""
-    registered_tools: List[str] = []
-    registered_hooks: List[str] = []
-    registered_mcps: List[str] = []
-    registered_adapter_types: List[str] = []
 
     @abstractmethod
     async def on_load(self, ctx: PluginContext) -> None:
