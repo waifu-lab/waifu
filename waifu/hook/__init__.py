@@ -1,7 +1,7 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Tuple, Union
 
 from waifu.logger import logger
-from waifu_types import BaseHook, HookContext, OutputTransformer
+from waifu_types import BaseHook, HookContext, OutputTransformer, StreamObserver
 
 
 class HookRegistry:
@@ -68,6 +68,52 @@ class HookPipeline:
             except Exception:
                 logger.exception("Hook {} post() error", hook.name)
         return ctx
+
+    def stream_observer(self, ctx: HookContext) -> StreamObserver:
+        observers: List[Tuple[str, StreamObserver]] = []
+        for hook in self._registry.hooks:
+            try:
+                observer = hook.stream_observer(ctx)
+            except Exception:
+                logger.exception("Hook {} stream_observer() error", hook.name)
+                continue
+            if observer is not None:
+                observers.append((hook.name, observer))
+        return _ChainedObserver(observers)
+
+
+class _ChainedObserver(StreamObserver):
+    def __init__(self, observers: List[Tuple[str, StreamObserver]]) -> None:
+        self._observers = observers
+
+    def feed(self, chunk: str) -> None:
+        self._each("feed", chunk)
+
+    def end_turn(self) -> None:
+        self._each("end_turn")
+
+    def reset(self) -> None:
+        self._each("reset")
+
+    async def finish(self) -> None:
+        await self._each_async("finish")
+
+    async def aclose(self) -> None:
+        await self._each_async("aclose")
+
+    def _each(self, method: str, *args: Any) -> None:
+        for name, observer in self._observers:
+            try:
+                getattr(observer, method)(*args)
+            except Exception:
+                logger.exception("Hook {} stream observer {}() error", name, method)
+
+    async def _each_async(self, method: str) -> None:
+        for name, observer in self._observers:
+            try:
+                await getattr(observer, method)()
+            except Exception:
+                logger.exception("Hook {} stream observer {}() error", name, method)
 
 
 from .builtin import EmotionHook, LoggingHook, RateLimitHook, TTSHook

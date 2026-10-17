@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from waifu_types.output import OutputTransformer
+from waifu_types.output import OutputTransformer, StreamObserver
 from waifu_types.prompt import SystemPromptLayers
 from waifu_types.session import BaseSession
 from waifu_types.trace import BaseExecutionTrace
@@ -51,6 +51,10 @@ class BaseHook(ABC):
     def output_transformers(self) -> Sequence[OutputTransformer]:
         """此 hook 提供的輸出處理器"""
         return ()
+
+    def stream_observer(self, ctx: HookContext) -> Optional[StreamObserver]:  # noqa: ARG002
+        """需要在 LLM 串流時即時處理文字"""
+        return None
 
     def capabilities(self) -> Dict[str, Any]:
         """WebSocket 連線時回報給前端的能力描述"""

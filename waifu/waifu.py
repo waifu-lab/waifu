@@ -59,6 +59,7 @@ from waifu_types import (
     OutgoingResponse,
     ReplyFn,
     SessionService,
+    StreamObserver,
     SystemMessage,
     ToolMessage,
     UserMessage,
@@ -477,7 +478,8 @@ class Waifu:
         """
         單一請求的完整生命週期（由 Lane 呼叫，同一對話保證串行）：
           Session → HookPipeline.pre → ContextBuilder → AgentRunner
-          → OutputPipeline → HookPipeline.mid → 持久化 → HookPipeline.post → OutgoingResponse
+          → OutputPipeline → HookPipeline.mid → 持久化 → StreamObserver.finish → HookPipeline.post → OutgoingResponse
+        AgentRunner 串流期間，原始 chunk 同時交給 hook 的 StreamObserver（例如 TTS 邊生成邊合成）
         """
         command_response = await self._command_service.try_execute(request)
         if command_response is not None:
@@ -522,7 +524,25 @@ class Waifu:
         # Capture after hooks (MemoryHook.pre may have replaced ctx.messages with file-loaded history)
         history_len = len(ctx.messages)
 
-        agent_result = await self._run_agent(ctx, system_prompt, tools, context_manager)
+        observer = self._hook_pipeline.stream_observer(ctx)
+        try:
+            return await self._run_and_respond(ctx, system_prompt, tools, context_manager, history_len, observer)
+        finally:
+            await observer.aclose()
+
+    async def _run_and_respond(
+        self,
+        ctx: HookContext,
+        system_prompt: str,
+        tools: Any,
+        context_manager: Any,
+        history_len: int,
+        observer: StreamObserver,
+    ) -> OutgoingResponse:
+        request = ctx.request
+        session = ctx.session
+
+        agent_result = await self._run_agent(ctx, system_prompt, tools, context_manager, observer)
         if isinstance(agent_result, OutgoingResponse):
             return agent_result
 
@@ -549,6 +569,7 @@ class Waifu:
         session.add_messages(ctx.new_messages)
         self._persist_new_messages(request.conversation_id, ctx.new_messages, agent_result.trace.token_usage)
 
+        await observer.finish()
         ctx = await self._hook_pipeline.run_post(ctx)
 
         display_content = self._output.apply(ctx.response or final_content).strip()
@@ -564,11 +585,13 @@ class Waifu:
         return messages
 
     async def _run_agent(
-        self, ctx: HookContext, system_prompt: str, tools: Any, context_manager: Any
+        self, ctx: HookContext, system_prompt: str, tools: Any, context_manager: Any, observer: StreamObserver
     ) -> Any:
         request = ctx.request
         try:
-            return await self._agent_runner.run(ctx, system_prompt, tools, context_manager, self._output.stream())
+            return await self._agent_runner.run(
+                ctx, system_prompt, tools, context_manager, self._output.stream(), observer
+            )
         except asyncio.CancelledError:
             logger.warning(
                 "Request {} cancelled (client disconnected), writing interrupt placeholder",

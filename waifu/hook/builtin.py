@@ -1,3 +1,4 @@
+import asyncio
 import time
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
 
@@ -10,6 +11,7 @@ from waifu_types import (
     InlineTagTransformer,
     OutputTransformer,
     SessionMeta,
+    StreamObserver,
     SystemPromptLayers,
 )
 
@@ -211,27 +213,63 @@ class TTSHook(BaseHook):
         self._clean = clean
         self._emotion_hook = emotion_hook
 
-    async def post(self, ctx: HookContext) -> HookContext:
-        if not ctx.response or not ctx.request.has_feature(Feature.LIVE2D):
-            return ctx
+    def stream_observer(self, ctx: HookContext) -> Optional[StreamObserver]:
+        if not ctx.request.has_feature(Feature.LIVE2D):
+            return None
+        return _TTSStreamObserver(ctx, self._voice, self._clean, self._emotion_hook)
 
+
+class _TTSStreamObserver(StreamObserver):
+    """LLM 串流時邊切句邊合成；每句合成好就依序送出 emotion → audio → lipsync"""
+
+    def __init__(
+        self,
+        ctx: HookContext,
+        voice_service: "VoiceService",
+        clean: Callable[[str], str],
+        emotion_hook: Optional[EmotionHook],
+    ) -> None:
+        self._ctx = ctx
+        self._voice = voice_service
+        self._emotion_hook = emotion_hook
+        self._stream = voice_service.sentence_stream(
+            need_lipsync=ctx.request.has_feature(Feature.LIPSYNC),
+            clean=clean,
+        )
+        self._sender = asyncio.create_task(self._send())
+
+    def feed(self, chunk: str) -> None:
+        self._stream.feed(chunk)
+
+    def end_turn(self) -> None:
+        self._stream.end_turn()
+
+    def reset(self) -> None:
+        self._stream.reset()
+
+    async def finish(self) -> None:
+        self._stream.close()
+        await self._sender
+
+    async def aclose(self) -> None:
+        self._sender.cancel()
+        await self._stream.aclose()
+        await asyncio.gather(self._sender, return_exceptions=True)
+
+    async def _send(self) -> None:
+        ctx = self._ctx
+        emotion_hook = self._emotion_hook
         allowed = allowed_expressions(ctx)
         try:
-            async for result in self._voice.synthesize_sentences(
-                ctx.response,
-                need_lipsync=ctx.request.has_feature(Feature.LIPSYNC),
-                clean=self._clean,
-            ):
-                if self._emotion_hook is not None:
-                    emotion = self._emotion_hook.detect(result.sentence, allowed)
+            async for result in self._stream.results():
+                if emotion_hook is not None:
+                    emotion = emotion_hook.detect(result.sentence, allowed)
                     await ctx.request.reply_event(Event(event=EMOTION, data={"emotion": emotion}))
                     ctx.handled.add(EMOTION)
                 for ev in self._voice.build_audio_events(result):
                     await ctx.request.reply_event(ev)
         except Exception:
             logger.exception("TTSHook: synthesis failed")
-
-        return ctx
 
 
 __all__ = [

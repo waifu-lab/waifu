@@ -160,6 +160,7 @@ class TTSBackendConfig(BaseModel):
     backend: str
     timeout_retries: int = 1  # 單句合成逾時的重試次數
     retry_backoff_s: float = 0.1
+    max_concurrency: int = 2
 
     def build(self) -> "TTSProvider":
         raise NotImplementedError

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 from shuvi.agent import Agent
 from shuvi.context import ContextManager
 from shuvi.types import AGENT_OUTCOME, AgentCallbacks, AgentConfig, AgentResult
-from waifu_types import Event, HookContext, StreamTransform
+from waifu_types import Event, HookContext, StreamObserver, StreamTransform
 
 if TYPE_CHECKING:
     from hai.providers.providers import ProviderText
@@ -23,12 +23,14 @@ class AgentRunner:
         tools: List["Tool"],
         context_manager: ContextManager,
         stream: StreamTransform,
+        observer: StreamObserver,
     ) -> AgentResult:
         request = ctx.request
         turn_sent = 0
 
         async def _on_chunk(chunk: str) -> None:
             nonlocal turn_sent
+            observer.feed(chunk)
             clean = stream.feed(chunk)
             if clean:
                 turn_sent += len(clean)
@@ -37,6 +39,7 @@ class AgentRunner:
         async def _on_stream_reset(partial: str) -> None:
             nonlocal turn_sent
             stream.flush()
+            observer.reset()
             discard, turn_sent = turn_sent, 0
             logger.warning("Stream interrupted after {} chars, re-running the turn", len(partial))
             await request.reply_event(Event(event="stream_reset", data={"discard": discard}))
@@ -44,6 +47,7 @@ class AgentRunner:
         def _on_turn_end(_state: Any) -> None:
             nonlocal turn_sent
             turn_sent = 0
+            observer.end_turn()
 
         async def _on_tool_error(tool_name: str, exc: Exception) -> None:
             logger.warning("Tool '{}' raised an error: {}", tool_name, exc)
