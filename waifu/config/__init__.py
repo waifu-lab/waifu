@@ -178,9 +178,9 @@ class OpenAITTSConfig(TTSBackendConfig):
     speed: float = 1.0
 
     def build(self) -> "TTSProvider":
-        from hai.providers import ProviderTTS
+        from hai.providers import OpenAITTS
 
-        return ProviderTTS(
+        return OpenAITTS(
             name="waifu-tts",
             api_key=self.api_key,
             base_url=self.base_url,

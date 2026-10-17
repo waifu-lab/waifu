@@ -221,11 +221,15 @@ class SentenceStream:
         for sentence in complete:
             self._submit(sentence)
 
-    def end_turn(self) -> None:
+    def break_sentence(self) -> None:
+        """目前 buffer 視為完整一句送出，不與後續文字接在一起"""
         if self._closed:
             return
         self._submit(self._buf)
         self._buf = ""
+
+    def end_turn(self) -> None:
+        self.break_sentence()
         self._turn = []
 
     def reset(self) -> None:

@@ -111,3 +111,37 @@ def test_legacy_live2d_flags_become_features():
         reply_fn=lambda **_: None,
     )
     assert req.features == {Feature.LIVE2D, Feature.LIPSYNC}
+
+
+@pytest.mark.unit
+async def test_interrupt_cancels_current_request_and_lane_continues():
+    started = asyncio.Event()
+    cancelled: list = []
+
+    async def handler(req: IncomingRequest) -> OutgoingResponse:
+        if req.content == "slow":
+            started.set()
+            try:
+                await asyncio.sleep(10)
+            except asyncio.CancelledError:
+                cancelled.append(req.content)
+                raise
+        return OutgoingResponse(
+            request_id=req.request_id, conversation_id=req.conversation_id, source="t", content=req.content
+        )
+
+    core = _core_with_handler(handler)
+    replies: list = []
+    slow = _request("c1", "slow", replies)
+    await core.dispatch(slow)
+    await core.dispatch(_request("c1", "next", replies))
+    await started.wait()
+
+    interrupted = await core.interrupt("c1")
+    assert interrupted is slow
+    assert cancelled == ["slow"]
+
+    after = await core.dispatch_and_wait(_request("c1", "after", replies))
+    assert after.content == "after"
+    assert replies == ["next", "after"]
+    assert await core.interrupt("c1") is None

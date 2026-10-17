@@ -56,6 +56,10 @@ class GatewayCore:
         """同 dispatch，但等待並回傳最終回應（cron / heartbeat / SDK 使用）"""
         return await (await self._enqueue(request))
 
+    async def interrupt(self, conversation_id: str) -> Optional[IncomingRequest]:
+        """中斷該對話正在處理的請求（LLM 生成 / TTS 合成），回傳被中斷的請求；沒有則為 None"""
+        return await self._lane_manager.interrupt(conversation_id)
+
     async def _enqueue(self, request: IncomingRequest) -> "asyncio.Future[OutgoingResponse]":
         lane = self._lane_manager.get_or_create(request.conversation_id)
         return await lane.enqueue(request, self._handle_request)

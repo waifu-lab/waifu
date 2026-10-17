@@ -24,3 +24,7 @@ class GatewayProtocol(Protocol):
     async def dispatch_and_wait(self, request: IncomingRequest) -> OutgoingResponse:
         """同 dispatch，但等待並回傳最終回應"""
         ...
+
+    async def interrupt(self, conversation_id: str) -> Optional[IncomingRequest]:
+        """中斷該對話正在處理的請求，回傳被中斷的請求；沒有進行中的請求時為 None"""
+        ...

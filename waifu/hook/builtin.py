@@ -11,6 +11,8 @@ from waifu_types import (
     InlineTagTransformer,
     OutputTransformer,
     SessionMeta,
+    SpanMarkerTransformer,
+    SpanPiece,
     StreamObserver,
     SystemPromptLayers,
 )
@@ -199,6 +201,9 @@ class LoggingHook(BaseHook):
         return ctx
 
 
+SPEAK = "speak"
+
+
 class TTSHook(BaseHook):
     name = "tts"
     priority = 15  # 在 EmotionHook 之前
@@ -212,11 +217,33 @@ class TTSHook(BaseHook):
         self._voice = voice_service
         self._clean = clean
         self._emotion_hook = emotion_hook
+        self._speak = SpanMarkerTransformer(SPEAK, SPEAK)
+
+    def output_transformers(self) -> Sequence[OutputTransformer]:
+        return (self._speak,)
+
+    def contribute_prompt(self, ctx: HookContext, layers: SystemPromptLayers) -> None:
+        if not ctx.request.has_feature(Feature.LIVE2D):
+            return
+        layers.output_discipline.append(
+            "## 語音朗讀（必須遵守）\n"
+            "你的回覆會用語音唸出來。\n"
+            "- 純聊天、沒有程式碼 / 清單 / 表格 / 網址的短回覆：直接回覆，不加標記，整段都會唸。\n"
+            "- 只要回覆裡有程式碼、指令、清單、表格、網址、步驟、查詢結果整理其中任何一項："
+            "回覆的第一個字元必須是 [speak]。把要唸出來的話寫成一兩句簡短口語包在 [speak]...[/speak] 內，"
+            "其餘內容放在區段外，只顯示不唸。[speak] 區段內不可放程式碼、網址或清單。\n"
+            "範例一（程式碼）：\n"
+            "[speak]用內建的 json 模組就可以讀，範例放在下面。[/speak]\n"
+            "```python\nimport json\n...\n```\n"
+            "範例二（查詢結果）：\n"
+            "[speak]查到了，重點有三個，我整理在下面。[/speak]\n1. ...\n2. ...\n3. ...\n"
+            "[speak]需要的話我可以再說明第二點。[/speak]"
+        )
 
     def stream_observer(self, ctx: HookContext) -> Optional[StreamObserver]:
         if not ctx.request.has_feature(Feature.LIVE2D):
             return None
-        return _TTSStreamObserver(ctx, self._voice, self._clean, self._emotion_hook)
+        return _TTSStreamObserver(ctx, self._voice, self._clean, self._emotion_hook, self._speak)
 
 
 class _TTSStreamObserver(StreamObserver):
@@ -228,28 +255,67 @@ class _TTSStreamObserver(StreamObserver):
         voice_service: "VoiceService",
         clean: Callable[[str], str],
         emotion_hook: Optional[EmotionHook],
+        speak: SpanMarkerTransformer,
     ) -> None:
         self._ctx = ctx
         self._voice = voice_service
+        self._clean = clean
         self._emotion_hook = emotion_hook
+        self._speak = speak
         self._stream = voice_service.sentence_stream(
             need_lipsync=ctx.request.has_feature(Feature.LIPSYNC),
             clean=clean,
         )
+        self._new_turn()
         self._sender = asyncio.create_task(self._send())
 
+    def _new_turn(self) -> None:
+        self._splitter = self._speak.splitter()
+        # None：還沒看到實際內容，尚未判斷；True：本輪只唸 [speak] 區段；False：本輪全唸
+        self._tagged: Optional[bool] = None
+        self._head = ""  # 判斷前的前綴（只會是空白 / 其他標籤，例如 [emotion:happy]）
+
     def feed(self, chunk: str) -> None:
-        self._stream.feed(chunk)
+        self._route(self._splitter.feed(chunk))
 
     def end_turn(self) -> None:
+        self._route(self._splitter.flush())
         self._stream.end_turn()
+        self._new_turn()
 
     def reset(self) -> None:
         self._stream.reset()
+        self._new_turn()
 
     async def finish(self) -> None:
+        self._route(self._splitter.flush())
         self._stream.close()
         await self._sender
+
+    def _route(self, pieces: List[SpanPiece]) -> None:
+        for piece in pieces:
+            if self._tagged is None:
+                self._decide(piece)
+            elif not self._tagged:
+                self._stream.feed(piece.text)
+            elif piece.marker:
+                if not piece.inside:
+                    self._stream.break_sentence()
+            elif piece.inside:
+                self._stream.feed(piece.text)
+
+    def _decide(self, piece: SpanPiece) -> None:
+        if piece.marker:
+            self._tagged = True
+            if piece.inside:
+                self._stream.feed(self._head)
+            self._head = ""
+            return
+        self._head += piece.text
+        if self._clean(self._head).strip():
+            self._tagged = False
+            self._stream.feed(self._head)
+            self._head = ""
 
     async def aclose(self) -> None:
         self._sender.cancel()
@@ -274,6 +340,7 @@ class _TTSStreamObserver(StreamObserver):
 
 __all__ = [
     "EMOTION",
+    "SPEAK",
     "RateLimitHook",
     "EmotionHook",
     "LoggingHook",

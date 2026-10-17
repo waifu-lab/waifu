@@ -108,3 +108,29 @@ def test_function_tool_schema_from_signature():
         "required": ["query"],
     }
     assert as_hai_tool(search).to_dict()["function"]["name"] == "search"
+
+
+@pytest.mark.unit
+def test_span_marker_apply_and_stream():
+    from waifu_types import SpanMarkerTransformer
+
+    t = SpanMarkerTransformer("speak", "speak")
+    assert t.apply("[speak]查到了[/SPEAK]\n1. a") == "查到了\n1. a"
+    stream = t.stream()
+    out = "".join(stream.feed(c) for c in ["[spe", "ak]嗨[", "/spea", "k] [1] 結尾 [sp"]) + stream.flush()
+    assert out == "嗨 [1] 結尾 [sp"
+
+
+@pytest.mark.unit
+def test_span_splitter_tracks_inside_across_chunks():
+    from waifu_types import SpanMarkerTransformer
+
+    splitter = SpanMarkerTransformer("speak", "speak").splitter()
+    pieces = []
+    for chunk in ["[spe", "ak]唸這", "個[/sp", "eak]不唸"]:
+        pieces += splitter.feed(chunk)
+    pieces += splitter.flush()
+    texts = [(p.text, p.inside) for p in pieces if not p.marker]
+    assert "".join(t for t, inside in texts if inside) == "唸這個"
+    assert "".join(t for t, inside in texts if not inside) == "不唸"
+    assert [p.inside for p in pieces if p.marker] == [True, False]

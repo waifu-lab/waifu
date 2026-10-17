@@ -35,6 +35,7 @@ class WebSocketAdapter(BaseGatewayAdapter):
       { type: "voice", conversation_id?, request_id?, audio: "<b64>", format: "webm" }
       { type: "event", name: "<event_name>", data: {...} }   ← heartbeat 觸發
       { type: "live2dsync", expressions: [...] }
+      { type: "stop",  conversation_id? }                    ← 中斷進行中的回覆，回 { type: "stopped", request_id }
 
     voice 訊息會先呼叫 VoiceService.transcribe() 轉為文字，再以正常 chat 流程處理。
     event 訊息路由到 HeartbeatManager，由各 handler 決定如何回應。
@@ -100,6 +101,8 @@ class WebSocketAdapter(BaseGatewayAdapter):
                     self._handle_heartbeat_event(websocket, session_token, data)
                 elif msg_type in ("chat", "voice"):
                     await self._handle_chat(websocket, session_token, data, msg_type)
+                elif msg_type == "stop":
+                    await self._handle_stop(websocket, session_token, data)
 
         except Exception:
             logger.debug("WebSocket connection closed: {}", session_token)
@@ -161,6 +164,14 @@ class WebSocketAdapter(BaseGatewayAdapter):
 
         if self._core is not None:
             await self._core.dispatch(request)
+
+    async def _handle_stop(self, websocket: "WebSocket", session_token: str, data: Dict[str, Any]) -> None:
+        """中斷進行中的回覆；被中斷的請求不會再送 chunk / event / done，之後一定會收到 stopped"""
+        conversation_id: str = data.get("conversation_id") or session_token
+        interrupted = await self._core.interrupt(conversation_id) if self._core is not None else None
+        request_id = interrupted.request_id if interrupted is not None else None
+        logger.debug("WebSocket stop: conv={} interrupted={}", conversation_id, request_id)
+        await websocket.send_json({"type": "stopped", "request_id": request_id})
 
     async def _resolve_content(
         self,

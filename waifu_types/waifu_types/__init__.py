@@ -5,7 +5,16 @@ from .hook import BaseHook, HookContext
 from .keys import Feature, RequestMeta, SessionMeta
 from .mcp import BaseMCPAdapter
 from .msg import MessageParts
-from .output import InlineTag, InlineTagTransformer, OutputTransformer, StreamObserver, StreamTransform
+from .output import (
+    InlineTag,
+    InlineTagTransformer,
+    OutputTransformer,
+    SpanMarkerTransformer,
+    SpanPiece,
+    SpanSplitter,
+    StreamObserver,
+    StreamTransform,
+)
 from .plugin import BasePlugin, PluginContext
 from .prompt import SystemPromptLayers
 from .services import (
@@ -78,6 +87,9 @@ __all__ = [
     "StreamObserver",
     "InlineTag",
     "InlineTagTransformer",
+    "SpanMarkerTransformer",
+    "SpanPiece",
+    "SpanSplitter",
     "BaseSession",
     "BaseExecutionTrace",
     "BaseMCPAdapter",

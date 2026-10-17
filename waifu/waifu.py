@@ -594,12 +594,14 @@ class Waifu:
             )
         except asyncio.CancelledError:
             logger.warning(
-                "Request {} cancelled (client disconnected), writing interrupt placeholder",
+                "Request {} cancelled (interrupted or client disconnected), writing interrupt placeholder",
                 request.request_id,
             )
-            self._conversation_store.add_llm_message(
-                request.conversation_id,
-                {"role": "assistant", "content": "〔已中斷〕"},
+            placeholder = {"role": "assistant", "content": "〔已中斷〕"}
+            self._conversation_store.add_llm_message(request.conversation_id, placeholder)
+
+            ctx.session.add_messages(
+                [_to_waifu_message({"role": "user", "content": request.content}), _to_waifu_message(placeholder)]
             )
             raise
         except Exception:

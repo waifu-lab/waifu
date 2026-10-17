@@ -17,10 +17,22 @@ class Lane:
         self._task: asyncio.Task | None = None
         self._on_idle = on_idle
         self._pending = 0  # 已呼叫 enqueue 但尚未處理完的請求數（含等待 put 中的）
+        self._current: Optional[Tuple[IncomingRequest, "asyncio.Task[OutgoingResponse]"]] = None
+        self._interrupted: Optional["asyncio.Task[OutgoingResponse]"] = None
 
     @property
     def idle(self) -> bool:
         return self._pending == 0
+
+    async def interrupt(self) -> Optional[IncomingRequest]:
+        """取消正在處理的請求（佇列中的不受影響），等它收尾完成後回傳該請求；沒有進行中的請求時回傳 None"""
+        if self._current is None:
+            return None
+        request, task = self._current
+        self._interrupted = task
+        task.cancel()
+        await asyncio.wait([task])
+        return request
 
     async def enqueue(self, item: IncomingRequest, handler: _Handler) -> "asyncio.Future[OutgoingResponse]":
         """排入佇列並回傳完成時的 Future；佇列已滿時會等待空位"""
@@ -41,19 +53,25 @@ class Lane:
         while not self._queue.empty():
             item, handler, fut = self._queue.get_nowait()
             token = cid.set(item.conversation_id)
+
+            task = asyncio.create_task(handler(item))
+            self._current = (item, task)
             try:
-                result = await handler(item)
+                result = await task
                 if not fut.done():
                     fut.set_result(result)
             except asyncio.CancelledError:
                 if not fut.done():
                     fut.cancel()
-                raise
+                if self._interrupted is not task:
+                    raise
             except Exception as e:
                 logger.exception("Lane handler error: {}", e)
                 if not fut.done():
                     fut.set_exception(e)
             finally:
+                self._current = None
+                self._interrupted = None
                 cid.reset(token)
                 self._queue.task_done()
                 self._pending -= 1
@@ -75,6 +93,10 @@ class LaneManager:
             lane = Lane(self._max_queue_size, on_idle=lambda done: self._release(conversation_id, done))
             self._lanes[conversation_id] = lane
         return lane
+
+    async def interrupt(self, conversation_id: str) -> Optional[IncomingRequest]:
+        lane = self._lanes.get(conversation_id)
+        return await lane.interrupt() if lane is not None else None
 
     def _release(self, conversation_id: str, lane: Lane) -> None:
         if self._lanes.get(conversation_id) is lane and lane.idle:

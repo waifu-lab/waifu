@@ -50,6 +50,7 @@ def cmd_start(args: List[str]) -> None:
         reload=ns.reload,
         log_level=ns.log_level.lower(),
         log_config=None,
+        ws="websockets-sansio",
     )
 
 

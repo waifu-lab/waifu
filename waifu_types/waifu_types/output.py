@@ -120,8 +120,81 @@ class InlineTagTransformer(OutputTransformer):
         return None
 
 
+@dataclass(frozen=True)
+class SpanPiece:
+    """SpanSplitter 的輸出：一段文字，或一個標記（text 為空、marker=True）；inside 為該位置是否在區段內"""
+
+    text: str
+    inside: bool
+    marker: bool = False
+
+
+class SpanMarkerTransformer(OutputTransformer):
+    """成對區段標記，例如 [speak]...[/speak]；apply 只移除標記本身，區段內文字保留"""
+
+    def __init__(self, name: str, tag: str, *, apply_to_history: bool = True) -> None:
+        self.name = name
+        self.apply_to_history = apply_to_history
+        self.tag = tag.lower()
+        self._markers = (f"[{self.tag}]", f"[/{self.tag}]")
+        self._pattern = re.compile(rf"\[/?{re.escape(self.tag)}\]", re.IGNORECASE)
+
+    def apply(self, text: str) -> str:
+        return self._pattern.sub("", text)
+
+    def stream(self) -> StreamTransform:
+        return _InlineTagStream(self)
+
+    def splitter(self) -> "SpanSplitter":
+        return SpanSplitter(self)
+
+    def pending_start(self, text: str) -> Optional[int]:
+        idx = text.rfind("[")
+        if idx < 0:
+            return None
+        tail = text[idx:].lower()
+        if tail in self._markers:
+            return None
+        return idx if any(m.startswith(tail) for m in self._markers) else None
+
+
+class SpanSplitter:
+    """串流切分原始文字為區段內 / 外的片段；標記被拆在 chunk 之間時會暫存到能判斷為止"""
+
+    def __init__(self, transformer: SpanMarkerTransformer) -> None:
+        self._transformer = transformer
+        self._buf = ""
+        self.inside = False
+
+    def feed(self, chunk: str) -> List[SpanPiece]:
+        text = self._buf + chunk
+        cut = self._transformer.pending_start(text)
+        if cut is None:
+            self._buf = ""
+        else:
+            text, self._buf = text[:cut], text[cut:]
+        return self._split(text)
+
+    def flush(self) -> List[SpanPiece]:
+        text, self._buf = self._buf, ""
+        return self._split(text)
+
+    def _split(self, text: str) -> List[SpanPiece]:
+        pieces: List[SpanPiece] = []
+        pos = 0
+        for m in self._transformer._pattern.finditer(text):
+            if m.start() > pos:
+                pieces.append(SpanPiece(text[pos : m.start()], self.inside))
+            self.inside = not m.group(0).startswith("[/")
+            pieces.append(SpanPiece("", self.inside, marker=True))
+            pos = m.end()
+        if pos < len(text):
+            pieces.append(SpanPiece(text[pos:], self.inside))
+        return pieces
+
+
 class _InlineTagStream(StreamTransform):
-    def __init__(self, transformer: InlineTagTransformer) -> None:
+    def __init__(self, transformer: "InlineTagTransformer | SpanMarkerTransformer") -> None:
         self._transformer = transformer
         self._buf = ""
 
