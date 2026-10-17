@@ -1,6 +1,7 @@
 import uuid
 from typing import Any, Optional
 
+from waifu.gateway.adapters._stream import apply_stream_reset
 from waifu.logger import logger
 from waifu_types import (
     Attachment,
@@ -247,6 +248,7 @@ def _make_telegram_reply_fn(message: Any, stream_edit: bool = True) -> ReplyFn:
     ) -> None:
         nonlocal sent_message, buffer, last_edit
         if event is not None:
+            apply_stream_reset(buffer, event)
             return
 
         if chunk is not None and stream_edit:

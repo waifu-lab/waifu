@@ -2,6 +2,7 @@ import inspect
 import uuid
 from typing import Any, Optional
 
+from waifu.gateway.adapters._stream import apply_stream_reset
 from waifu.logger import logger
 from waifu_types import (
     Attachment,
@@ -275,6 +276,7 @@ def _make_discord_interaction_reply_fn(interaction: Any) -> ReplyFn:
         response: Optional[OutgoingResponse] = None, *, chunk: Optional[str] = None, event: Optional[Event] = None
     ) -> None:
         if event is not None:
+            apply_stream_reset(buffer, event)
             return
         if chunk is not None:
             buffer.append(chunk)
@@ -309,6 +311,7 @@ def _make_discord_reply_fn(message: Any, stream_edit: bool = True) -> ReplyFn:
     ) -> None:
         nonlocal sent_message, buffer
         if event is not None:
+            apply_stream_reset(buffer, event)
             return
 
         if chunk is not None and stream_edit:

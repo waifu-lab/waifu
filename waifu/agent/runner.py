@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from shuvi.agent import Agent
 from shuvi.context import ContextManager
@@ -10,8 +10,6 @@ if TYPE_CHECKING:
     from hai.tool import Tool
 
 from waifu.logger import logger
-
-_MAX_RETRIES = 1
 
 
 class AgentRunner:
@@ -27,72 +25,68 @@ class AgentRunner:
         stream: StreamTransform,
     ) -> AgentResult:
         request = ctx.request
-        emitted = False
+        turn_sent = 0
 
         async def _on_chunk(chunk: str) -> None:
-            nonlocal emitted
-            emitted = True
+            nonlocal turn_sent
             clean = stream.feed(chunk)
             if clean:
+                turn_sent += len(clean)
                 await request.reply_chunk(clean)
+
+        async def _on_stream_reset(partial: str) -> None:
+            nonlocal turn_sent
+            stream.flush()
+            discard, turn_sent = turn_sent, 0
+            logger.warning("Stream interrupted after {} chars, re-running the turn", len(partial))
+            await request.reply_event(Event(event="stream_reset", data={"discard": discard}))
+
+        def _on_turn_end(_state: Any) -> None:
+            nonlocal turn_sent
+            turn_sent = 0
 
         async def _on_tool_error(tool_name: str, exc: Exception) -> None:
             logger.warning("Tool '{}' raised an error: {}", tool_name, exc)
             await request.reply_event(Event(event="tool_error", data={"name": tool_name, "error": str(exc)}))
 
         async def _on_tool_call(tool_name: str, arguments: str) -> None:
-            nonlocal emitted
-            emitted = True
             await request.reply_event(Event(event="tool_call", data={"name": tool_name, "arguments": arguments}))
 
         async def _on_tool_result(tool_name: str, result: str) -> None:
             await request.reply_event(Event(event="tool_result", data={"name": tool_name, "result": result}))
 
         cid = request.conversation_id
-        last_exc: Optional[BaseException] = None
+        captured_exc: Optional[BaseException] = None
 
-        for attempt in range(_MAX_RETRIES + 1):
-            captured_exc: Optional[BaseException] = None
+        def _on_error(e: Exception) -> None:
+            nonlocal captured_exc
+            captured_exc = e
 
-            def _on_error(e: Exception) -> None:
-                nonlocal captured_exc
-                captured_exc = e
-
-            agent = Agent(
-                AgentConfig(
-                    provider=self.provider,
-                    system_prompt=system_prompt,
-                    tools=tools,
-                    callbacks=AgentCallbacks(
-                        on_chunk=_on_chunk,
-                        error=_on_error,
-                        on_tool_error=_on_tool_error,
-                        tool_call=_on_tool_call,
-                        tool_result=_on_tool_result,
-                    ),
-                    session_id=cid,
-                    context_manager=context_manager,
-                )
+        agent = Agent(
+            AgentConfig(
+                provider=self.provider,
+                system_prompt=system_prompt,
+                tools=tools,
+                callbacks=AgentCallbacks(
+                    on_chunk=_on_chunk,
+                    on_stream_reset=_on_stream_reset,
+                    state_update=_on_turn_end,
+                    error=_on_error,
+                    on_tool_error=_on_tool_error,
+                    tool_call=_on_tool_call,
+                    tool_result=_on_tool_result,
+                ),
+                session_id=cid,
+                context_manager=context_manager,
             )
+        )
 
-            result = await agent.run()
+        result = await agent.run()
 
-            remaining = stream.flush()
-            if remaining:
-                await request.reply_chunk(remaining)
+        remaining = stream.flush()
+        if remaining:
+            await request.reply_chunk(remaining)
 
-            if result.outcome != AGENT_OUTCOME.error:
-                return result
-
-            last_exc = captured_exc
-            if attempt < _MAX_RETRIES and not emitted:
-                logger.warning(
-                    "AgentRunner: attempt {}/{} failed ({}), retrying…",
-                    attempt + 1,
-                    _MAX_RETRIES + 1,
-                    last_exc,
-                )
-                continue
-            break
-
-        raise RuntimeError(f"Agent failed for conversation {cid}") from last_exc
+        if result.outcome == AGENT_OUTCOME.error:
+            raise RuntimeError(f"Agent failed for conversation {cid}") from captured_exc
+        return result
