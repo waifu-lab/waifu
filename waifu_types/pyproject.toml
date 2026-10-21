@@ -1,6 +1,6 @@
 [project]
 name = "waifu_types"
-version = "0.1.0a1"
+version = "0.2.0a1"
 description = "Shared types, ABCs and Protocols for the waifu ecosystem"
 authors = [{ name = "phillychi3", email = "phillychi3@gmail.com" }]
 requires-python = ">=3.10"
