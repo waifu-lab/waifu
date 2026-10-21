@@ -2,7 +2,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import List, Union
+from typing import List, Optional, Union
 
 from waifu.logger import setup_logging
 from waifu.store.paths import AppPaths
@@ -12,7 +12,13 @@ def cmd_start(args: List[str]) -> None:
     parser = argparse.ArgumentParser(prog="waifu start", description="Start the waifu server")
     parser.add_argument("--config", "-c", default="default", help="Config file path)")
     parser.add_argument("--host", default=None, help="Override host")
-    parser.add_argument("--port", "-p", type=int, default=None, help="Override port")
+    parser.add_argument("--port", "-p", type=int, default=None, help="Override port (0 = pick a free port)")
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=_env_int("WAIFU_PARENT_PID"),
+        help="Exit when this process exits (or env WAIFU_PARENT_PID)",
+    )
     parser.add_argument("--app", default=None, help="FastAPI app import path, e.g. myapp:app")
     parser.add_argument("--reload", action="store_true", help="Enable hot reload (dev)")
     parser.add_argument("--log-level", default="info", help="Log level (default: info)")
@@ -35,23 +41,54 @@ def cmd_start(args: List[str]) -> None:
     config_path = Path(paths.config_file if ns.config == "default" else ns.config)
     config = _load_config(config_path, paths)
     gateway_config = _load_gateway_config(paths.gateway_config_file)
-    host = ns.host or config.gateway.host
-    port = ns.port or config.gateway.port
+    host = ns.host if ns.host is not None else config.gateway.host
+    port = ns.port if ns.port is not None else config.gateway.port
+
+    if ns.reload and (port == 0 or ns.parent_pid is not None):
+        print("--port 0 and --parent-pid are not supported with --reload", file=sys.stderr)
+        sys.exit(2)
 
     if ns.app:
         app_path = ns.app
     else:
         app_path = _build_default_app(config, gateway_config, paths, config_path)
 
-    uvicorn.run(
-        app_path,
-        host=host,
-        port=port,
-        reload=ns.reload,
-        log_level=ns.log_level.lower(),
-        log_config=None,
-        ws="websockets-sansio",
+    if ns.reload:
+        uvicorn.run(
+            app_path,
+            host=host,
+            port=port,
+            reload=True,
+            log_level=ns.log_level.lower(),
+            log_config=None,
+            ws="websockets-sansio",
+        )
+        return
+
+    from waifu.cli._lifecycle import ReadyServer, bind_socket, graceful_exit, watch_parent
+
+    server = ReadyServer(
+        uvicorn.Config(
+            app_path,
+            host=host,
+            port=port,
+            log_level=ns.log_level.lower(),
+            log_config=None,
+            ws="websockets-sansio",
+        )
     )
+    if ns.parent_pid is not None:
+        watch_parent(ns.parent_pid, graceful_exit(server))
+
+    sockets = [bind_socket(host, port)] if port == 0 else None
+    server.run(sockets=sockets)
+    if not server.started:
+        sys.exit(3)  # 與 uvicorn.run 的 STARTUP_FAILURE 相同
+
+
+def _env_int(name: str) -> Optional[int]:
+    raw = os.environ.get(name)
+    return int(raw) if raw else None
 
 
 def _load_config(config_path: Path, paths: AppPaths):

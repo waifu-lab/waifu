@@ -1,16 +1,18 @@
+import argparse
+import os
 import sys
 from pathlib import Path
-from typing import Any, List, Optional
-
-from rich.prompt import Confirm, Prompt
+from typing import Any, List, NoReturn, Optional
 
 from hai.providers import PROVIDERS
+from rich.prompt import Confirm, Prompt
+
 from waifu.cli._console import console, err_console
 from waifu.config import (
     ContextConfig,
     GatewayConfig,
-    ProviderConfig,
     OpenAITTSConfig,
+    ProviderConfig,
     STTConfig,
     VoiceConfig,
     WaifuConfig,
@@ -32,6 +34,8 @@ _PROVIDER_MODEL_DEFAULTS = {
     "google": "gemini-2.5-flash",
     "ollama": "llama3.2",
 }
+
+_API_KEY_ENV = "WAIFU_API_KEY"
 
 
 def _masked_input(prompt: str) -> str:  # noqa: C901
@@ -324,10 +328,105 @@ def _strip_none(value: Any) -> Any:
     return value
 
 
+def _parse_args(args: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="waifu init",
+        description="First-run setup (config + DB). Interactive by default; "
+        "pass --non-interactive to configure from flags (for launchers / scripts).",
+    )
+    parser.add_argument("--non-interactive", "-y", action="store_true", help="Never prompt; use flags and defaults")
+    parser.add_argument("--force", action="store_true", help="Overwrite an existing config (non-interactive)")
+    parser.add_argument("--provider", default="openai", help=f"LLM provider: {', '.join([*PROVIDERS, 'custom'])}")
+    parser.add_argument("--api-key", default=None, help=f"Provider API key (or env {_API_KEY_ENV})")
+    parser.add_argument("--base-url", default=None, help="Provider base URL (default depends on provider)")
+    parser.add_argument("--model", default=None, help="Model name (default depends on provider)")
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--max-tokens", type=int, default=None)
+    parser.add_argument("--character", default=None, help="Active character")
+    parser.add_argument("--host", default=None, help="Gateway host")
+    parser.add_argument("--port", type=int, default=None, help="Gateway port")
+    return parser.parse_args(args)
+
+
+def _fail(message: str) -> NoReturn:
+    err_console.print(f"[red]{message}[/red]")
+    sys.exit(2)
+
+
+def _stdin_is_terminal() -> bool:
+    if sys.stdin is None or not sys.stdin.isatty():
+        return False
+    if sys.platform != "win32":
+        return True
+    # Windows 上 NUL 也是字元裝置，isatty() 為 True；只有真正的 console 才有 console mode
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    mode = wintypes.DWORD()
+    handle = msvcrt.get_osfhandle(sys.stdin.fileno())
+    return bool(ctypes.windll.kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+
+def _config_from_args(ns: argparse.Namespace) -> WaifuConfig:
+    provider = ns.provider
+    if provider not in (*PROVIDERS, "custom"):
+        _fail(f"Unknown provider '{provider}'.")
+
+    api_key = ns.api_key if ns.api_key is not None else os.environ.get(_API_KEY_ENV, "")
+    if not api_key and provider not in ("ollama", "custom"):
+        _fail(f"API key is required for provider '{provider}' (--api-key or {_API_KEY_ENV}).")
+
+    base_url = ns.base_url or _PROVIDER_BASE_URL_DEFAULTS.get(provider)
+    if provider == "custom" and not base_url:
+        _fail("--base-url is required for custom provider.")
+
+    model = ns.model or _PROVIDER_MODEL_DEFAULTS.get(provider)
+    if not model:
+        _fail(f"--model is required for provider '{provider}'.")
+
+    gateway = GatewayConfig()
+    if ns.host is not None:
+        gateway.host = ns.host
+    if ns.port is not None:
+        gateway.port = ns.port
+
+    return WaifuConfig(
+        provider=ProviderConfig(
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=ns.temperature,
+            max_tokens=ns.max_tokens,
+        ),
+        context=ContextConfig(system_prompt_template="You are a helpful assistant."),
+        gateway=gateway,
+        character=ns.character,
+    )
+
+
+def _init_noninteractive(ns: argparse.Namespace, paths: AppPaths) -> None:
+    if paths.config_file.exists() and not ns.force:
+        _ensure_gateway_config(paths)
+        _bootstrap_db(paths)
+        console.print("[dim]Config exists (use --force to overwrite). DB ready.[/dim]")
+        return
+
+    _finish(_config_from_args(ns), paths)
+
+
 def cmd_init(args: List[str]) -> None:
-    del args
+    ns = _parse_args(args)
     paths = AppPaths.resolve()
     cfg_file = paths.config_file
+
+    if ns.non_interactive:
+        _init_noninteractive(ns, paths)
+        return
+
+    if not _stdin_is_terminal():
+        _fail("stdin is not a terminal; use `waifu init --non-interactive` with flags instead.")
 
     console.print()
     console.print("[bold]waifu init[/bold]")
@@ -343,11 +442,7 @@ def cmd_init(args: List[str]) -> None:
         overwrite = Confirm.ask("Overwrite?", default=False)
         if not overwrite:
             # Still init DB in case it's missing
-            if not paths.gateway_config_file.exists():
-                _write_gateway_config(
-                    build_builtin_gateway_adapter_registry().create_default_config(),
-                    paths.gateway_config_file,
-                )
+            _ensure_gateway_config(paths)
             _bootstrap_db(paths)
             console.print("[dim]Config unchanged. DB ready.[/dim]")
             return
@@ -411,7 +506,11 @@ def cmd_init(args: List[str]) -> None:
         ),
         character=character,
     )
-    _write_config(config.model_dump(exclude_none=True), cfg_file)
+    _finish(config, paths)
+
+
+def _finish(config: WaifuConfig, paths: AppPaths) -> None:
+    _write_config(config.model_dump(exclude_none=True), paths.config_file)
     _write_gateway_config(
         build_builtin_gateway_adapter_registry().create_default_config(),
         paths.gateway_config_file,
@@ -432,6 +531,14 @@ def _write_config(data: dict, path: Path) -> None:
     with open(path, "wb") as f:
         tomli_w.dump(_strip_none(data), f)
     console.print(f"[dim]Config written → {path}[/dim]")
+
+
+def _ensure_gateway_config(paths: AppPaths) -> None:
+    if not paths.gateway_config_file.exists():
+        _write_gateway_config(
+            build_builtin_gateway_adapter_registry().create_default_config(),
+            paths.gateway_config_file,
+        )
 
 
 def _write_gateway_config(config, path: Path) -> None:

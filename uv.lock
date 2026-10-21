@@ -1517,7 +1517,7 @@ wheels = [
 
 [[package]]
 name = "waifu-sdk"
-version = "0.1.0"
+version = "0.1.0a1"
 source = { editable = "waifu_sdk" }
 dependencies = [
     { name = "hydrogen-ai" },
@@ -1532,7 +1532,7 @@ requires-dist = [
 
 [[package]]
 name = "waifu-types"
-version = "0.1.0"
+version = "0.1.0a1"
 source = { editable = "waifu_types" }
 dependencies = [
     { name = "pydantic" },
@@ -1543,7 +1543,6 @@ requires-dist = [{ name = "pydantic", specifier = ">=2.0" }]
 
 [[package]]
 name = "waifucore"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "croniter" },
@@ -1605,7 +1604,7 @@ requires-dist = [
     { name = "tomlkit", specifier = ">=0.13" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },
 ]
-provides-extras = ["discord", "telegram", "all"]
+provides-extras = ["all", "discord", "telegram"]
 
 [package.metadata.requires-dev]
 dev = [

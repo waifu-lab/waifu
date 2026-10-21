@@ -2,8 +2,9 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
+from waifu.plugin.deps import DEPS_DIRNAME, PluginDependencyInstaller
 from waifu_types import BasePlugin
 
 
@@ -15,11 +16,13 @@ class PluginMeta:
         self.description = data.get("description", "")
         self.entry = data["entry"]  # "module.ClassName"
         self.config_schema = data.get("config_schema", {})
+        self.dependencies: List[str] = data.get("dependencies", [])  # PEP 508, e.g. "orjson>=3"
 
 
 class PluginLoader:
-    def __init__(self, plugins_dir: Path) -> None:
+    def __init__(self, plugins_dir: Path, deps: PluginDependencyInstaller) -> None:
         self._dir = plugins_dir
+        self._deps = deps
 
     def list_available(self) -> List[PluginMeta]:
         result = []
@@ -31,7 +34,7 @@ class PluginLoader:
                 try:
                     result.append(PluginMeta(p, json.loads(meta_file.read_text(encoding="utf-8"))))
                 except (KeyError, json.JSONDecodeError):
-                    pass  # metadata 不合法，跳過
+                    pass
         return result
 
     def read_meta(self, plugin_name: str) -> PluginMeta:
@@ -40,6 +43,11 @@ class PluginLoader:
             raise FileNotFoundError(f"Plugin '{plugin_name}' not found or missing metadata.json")
         return PluginMeta(self._dir / plugin_name, json.loads(meta_file.read_text(encoding="utf-8")))
 
+    def ensure_dependencies(self, plugin_name: str) -> Optional[Path]:
+        """Install the plugin's declared dependencies if needed (blocking; may hit the network)."""
+        meta = self.read_meta(plugin_name)
+        return self._deps.ensure(meta.dir, meta.dependencies)
+
     def resolve(self, plugin_name: str) -> BasePlugin:
         meta = self.read_meta(plugin_name)
         module_path, class_name = meta.entry.rsplit(".", 1)
@@ -47,6 +55,10 @@ class PluginLoader:
         plugin_parent = str(meta.dir.parent)
         if plugin_parent not in sys.path:
             sys.path.insert(0, plugin_parent)
+
+        deps_dir = meta.dir / DEPS_DIRNAME
+        if deps_dir.is_dir() and str(deps_dir) not in sys.path:
+            sys.path.append(str(deps_dir))
 
         spec = importlib.util.find_spec(module_path)
         if spec is None:

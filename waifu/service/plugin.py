@@ -1,3 +1,4 @@
+import asyncio
 from typing import Dict, List
 
 from waifu.plugin import PluginManager
@@ -13,6 +14,7 @@ class PluginService:
         self._loader = loader
 
     async def install(self, plugin_name: str, config: dict) -> PluginConfig:
+        await asyncio.to_thread(self._loader.ensure_dependencies, plugin_name)
         plugin = self._loader.resolve(plugin_name)
         await self._pm.load(plugin, config)
         return self._repo.create(plugin.name, plugin_name, config)

@@ -22,6 +22,7 @@ from waifu.logger import logger
 from waifu.mcp.manager import MCPManager
 from waifu.node import NodeManager
 from waifu.plugin import PluginManager, PluginRegistry
+from waifu.plugin.deps import PluginDependencyInstaller
 from waifu.plugin.facade import ConversationServiceFacade
 from waifu.plugin.loader import PluginLoader
 from waifu.service.character import CharacterService
@@ -186,7 +187,7 @@ class Waifu:
         self._gateway.set_dispatch_handler(self._dispatch)
 
         # Plugin Loader
-        self._plugin_loader = PluginLoader(self._paths.plugins_dir)
+        self._plugin_loader = PluginLoader(self._paths.plugins_dir, PluginDependencyInstaller())
 
         # Repositories
         self._cron_store = CronStore()
@@ -196,7 +197,6 @@ class Waifu:
         self._character_repo = CharacterRepository()
         self._relationship_repo = RelationshipRepository()
 
-        # DB 是設定的真實來源；以本次啟動使用的設定為準（經 ConfigSync.load() 載入時兩者相同）
         self._config_sync = ConfigSync(self._config_repo, config_path or self._paths.config_file)
         self._config_sync.adopt(config)
 
@@ -242,7 +242,6 @@ class Waifu:
         )
         self._token_analytics = TokenAnalyticsRepository()
 
-        # cron / heartbeat 也經過 gateway 的 Lane，確保與使用者訊息在同一對話中串行
         self._cron_executor = CronExecutor(dispatch_fn=self._gateway.dispatch_and_wait)
         self._cron_scheduler = CronScheduler(store=self._cron_store, executor=self._cron_executor)
         self._heartbeat_manager = HeartbeatManager(
@@ -250,7 +249,6 @@ class Waifu:
             events=config.heartbeat,
         )
 
-        # 供 adapter.on_mount() 查詢的執行期服務
         self._services = ServiceRegistry()
         self._services.register(HeartbeatManager, self._heartbeat_manager)
         self._services.register(NodeManager, self._node_manager)
@@ -382,6 +380,7 @@ class Waifu:
         for row in self._plugin_repo.list_enabled():
             try:
                 config = json.loads(cast(str, row.config_json))
+                await asyncio.to_thread(self._plugin_loader.ensure_dependencies, cast(str, row.plugin_name))
                 plugin = self._plugin_loader.resolve(cast(str, row.plugin_name))
                 await self._plugin_manager.load(plugin, config)
             except Exception:

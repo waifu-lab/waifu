@@ -1,6 +1,6 @@
 [project]
 name = "waifucore"
-version = "0.1.0"
+dynamic = ["version"]
 description = ""
 authors = [{ name = "phillychi3", email = "phillychi3@gmail.com" }]
 requires-python = ">=3.10"
@@ -39,6 +39,9 @@ all = ["discord-py>=2.7.1", "python-telegram-bot>=22.7"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "waifu/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["waifu", "waifu_types/waifu_types"]
