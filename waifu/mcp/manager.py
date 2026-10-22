@@ -1,8 +1,7 @@
 from typing import TYPE_CHECKING, Dict, List
 
-from waifu_types import BaseMCPAdapter
-
 from waifu.logger import logger
+from waifu_types import BaseMCPAdapter
 
 if TYPE_CHECKING:
     from hai.tool import Tool

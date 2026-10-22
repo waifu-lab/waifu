@@ -2,7 +2,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from waifu.card import CardImporter, NormalizedCard
 from waifu.store import CharacterManager
@@ -56,7 +56,7 @@ class CharacterService:
         return self._chars.list_all()
 
     def list_available_characters(self) -> List[str]:
-        names = {char.name for char in self._chars.list_all()}
+        names = {cast(str, char.name) for char in self._chars.list_all()}
         if self._manager is not None:
             names.update(self._manager.list_characters())
         return sorted(names)
@@ -91,7 +91,9 @@ class CharacterService:
     def sync_card(self, path: str | Path) -> CardImportResult:
         return self.import_card(path, overwrite=True)
 
-    def import_all_cards(self, *, overwrite: bool = False) -> tuple[list[CardImportResult], list[tuple[Path, Exception]]]:
+    def import_all_cards(
+        self, *, overwrite: bool = False
+    ) -> tuple[list[CardImportResult], list[tuple[Path, Exception]]]:
         manager = self._require_manager()
         importer = self._require_importer()
         results: list[CardImportResult] = []
@@ -140,11 +142,11 @@ class CharacterService:
 
         row = self._chars.get(raw)
         if row is not None:
-            return row.name
+            return cast(str, row.name)
 
         row = self._chars.get_by_name(raw)
         if row is not None:
-            return row.name
+            return cast(str, row.name)
 
         if self._manager is not None and raw in self._manager.list_characters():
             return raw

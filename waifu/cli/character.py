@@ -1,9 +1,9 @@
 import sys
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, List, Optional, cast
 
-from rich.table import Table
 import tomli_w
+from rich.table import Table
 
 from waifu.card import CardImporter, CardParser
 from waifu.cli._console import console, err_console
@@ -116,7 +116,7 @@ def _cmd_list() -> None:
     selected = _current_selected_character(paths)
     active = service.get_active()
     rows = []
-    db_rows = {char.name: char for char in service.list_all()}
+    db_rows = {cast(str, char.name): char for char in service.list_all()}
     for name in service.list_available_characters():
         row = db_rows.get(name)
         has_files = (paths.characters_dir / name).is_dir()
@@ -171,7 +171,7 @@ def _cmd_use(args: List[str]) -> None:
             return
 
     character = service.select_character(ref)
-    _set_selected_character(paths, character.name)
+    _set_selected_character(paths, cast(str, character.name))
     console.print(f"[green][OK][/green] Selected [bold]{character.name}[/bold]")
     console.print(f"  config [dim]{paths.config_file}[/dim]")
     console.print("  note   [dim]takes effect on next `waifu start`[/dim]")

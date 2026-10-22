@@ -212,7 +212,11 @@ class GPTSoVITSTTSConfig(TTSBackendConfig):
     def build(self) -> "TTSProvider":
         from hai.providers.gptsovits import GPTSoVITSTTS
 
-        return GPTSoVITSTTS(
+        class _GPTSoVITSTTS(GPTSoVITSTTS):
+            # GPT-SoVITS /tts always returns WAV; VoiceService reads response_format
+            response_format: str = "wav"
+
+        return _GPTSoVITSTTS(
             base_url=self.base_url,
             ref_audio_path=self.ref_audio_path,
             prompt_text=self.prompt_text,

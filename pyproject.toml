@@ -69,6 +69,13 @@ lint.unfixable = ["F401"]
 
 line-length = 120
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.File", "fastapi.Form", "fastapi.Query", "fastapi.Body", "fastapi.Depends"]
+
+[tool.ruff.lint.per-file-ignores]
+# system prompt text: wrapping would change what the model sees
+"waifu/agent/context.py" = ["E501"]
+
 [tool.uv.workspace]
 members = ["waifu_sdk", "waifu_types"]
 

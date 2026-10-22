@@ -90,7 +90,9 @@ class NodeSession:
             )
             result = await asyncio.wait_for(asyncio.shield(fut), timeout=self._invoke_timeout)
         except asyncio.TimeoutError:
-            raise TimeoutError(f"node {self.node_id!r} did not respond to {action!r} within {self._invoke_timeout}s")
+            raise TimeoutError(
+                f"node {self.node_id!r} did not respond to {action!r} within {self._invoke_timeout}s"
+            ) from None
         finally:
             self._pending.pop(request_id, None)
 
@@ -143,7 +145,9 @@ class NodeSession:
             )
             result = await asyncio.wait_for(asyncio.shield(fut), timeout=timeout_s)
         except asyncio.TimeoutError:
-            raise TimeoutError(f"node {self.node_id!r} did not complete skill sync {skill_id!r} within {timeout_s}s")
+            raise TimeoutError(
+                f"node {self.node_id!r} did not complete skill sync {skill_id!r} within {timeout_s}s"
+            ) from None
         finally:
             self._skill_pending.pop(skill_id, None)
 

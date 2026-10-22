@@ -43,7 +43,7 @@ class CronStore:
     def list_enabled(self) -> List[CronJob]:
         return list(
             CronJob.select()
-            .where(cast(BooleanField, CronJob.enabled) == True)
+            .where(cast(BooleanField, CronJob.enabled) == True)  # noqa: E712 — peewee expression
             .order_by(cast(DateTimeField, CronJob.created_at).asc())
         )
 

@@ -150,7 +150,7 @@ class VoiceService:
         for attempt in range(1, attempts + 1):
             try:
                 return await self._tts.synthesize(tts_text)
-            except httpx.TimeoutException as exc:
+            except httpx.TimeoutException:
                 if attempt >= attempts:
                     raise
 

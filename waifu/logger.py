@@ -4,18 +4,21 @@ import contextvars
 import logging
 import sys
 from pathlib import Path
-from typing import Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 from loguru import logger
 from rich.highlighter import NullHighlighter, ReprHighlighter
 from rich.logging import RichHandler
 from rich.text import Text
 
+if TYPE_CHECKING:
+    from loguru import Record
+
 cid: contextvars.ContextVar[str] = contextvars.ContextVar("cid", default="-")
 _MESSAGE_SPLIT = "__WAIFU_MESSAGE_SPLIT__"
 
 
-def _patch(record: dict) -> None:
+def _patch(record: "Record") -> None:
     record["extra"].setdefault("cid", cid.get())
     record["extra"].setdefault("logger_name", record["name"])
 

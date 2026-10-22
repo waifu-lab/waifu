@@ -40,8 +40,8 @@ class GreetingPoolHandler(HeartbeatHandler):
     async def handle(
         self,
         event_name: str,
-        data: dict,
-        session_token: str,
+        _data: dict,
+        _session_token: str,
         conversation_id: str,
         reply_fn: ReplyFn,
     ) -> None:

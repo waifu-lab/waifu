@@ -68,7 +68,7 @@ def _resolve(store, id_or_name: str):
     return job
 
 
-def _cmd_list(args: List[str]) -> None:
+def _cmd_list(_args: List[str]) -> None:
     store = _get_store()
     jobs = store.list()
     if not jobs:

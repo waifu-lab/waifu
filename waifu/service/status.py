@@ -64,7 +64,11 @@ class StatusService:
             "gateway": {
                 "host": cfg.get("gateway.host"),
                 "port": cfg.get("gateway.port"),
-                "adapters": [] if self._gateway_config_service is None else self._gateway_config_service.get_adapter_status(),
+                "adapters": (
+                    []
+                    if self._gateway_config_service is None
+                    else self._gateway_config_service.get_adapter_status()
+                ),
             },
             "voice": {
                 "enabled": self._voice_enabled,

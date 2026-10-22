@@ -1,11 +1,10 @@
 import asyncio
-from typing import Awaitable, Callable, Dict, Optional, Tuple
-
-from waifu_types import IncomingRequest, OutgoingResponse
+from typing import Any, Callable, Coroutine, Dict, Optional, Tuple
 
 from waifu.logger import logger
+from waifu_types import IncomingRequest, OutgoingResponse
 
-_Handler = Callable[[IncomingRequest], Awaitable[OutgoingResponse]]
+_Handler = Callable[[IncomingRequest], Coroutine[Any, Any, OutgoingResponse]]
 _Item = Tuple[IncomingRequest, _Handler, "asyncio.Future[OutgoingResponse]"]
 
 

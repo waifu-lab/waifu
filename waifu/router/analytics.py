@@ -22,8 +22,8 @@ def make_analytics_router(repo: TokenAnalyticsRepository) -> APIRouter:
     ) -> Dict[str, Any]:
         try:
             d = date.fromisoformat(target_date)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="日期格式應為 YYYY-MM-DD")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="日期格式應為 YYYY-MM-DD") from exc
         return repo.get_by_date(d, conversation_id)
 
     @router.get("/tokens/range")
@@ -35,8 +35,8 @@ def make_analytics_router(repo: TokenAnalyticsRepository) -> APIRouter:
         try:
             s = date.fromisoformat(start)
             e = date.fromisoformat(end)
-        except ValueError:
-            raise HTTPException(status_code=422, detail="日期格式應為 YYYY-MM-DD")
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="日期格式應為 YYYY-MM-DD") from exc
         if s > e:
             raise HTTPException(status_code=422, detail="start 不能晚於 end")
         return repo.get_range(s, e, conversation_id)

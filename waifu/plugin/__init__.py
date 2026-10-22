@@ -3,6 +3,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from hai.tool import Tool
+
 from waifu_types import (
     BaseGatewayAdapter,
     BaseHook,

@@ -3,6 +3,15 @@ from typing import Any, Dict, List, Tuple, Union
 from waifu.logger import logger
 from waifu_types import BaseHook, HookContext, OutputTransformer, StreamObserver
 
+from .builtin import EmotionHook, LoggingHook, RateLimitHook, TTSHook
+from .memory import (
+    ContextualMemoryStore,
+    InMemoryStore,
+    MemoryHook,
+    MemoryStore,
+    RelationshipMemoryStore,
+)
+
 
 class HookRegistry:
     """管理所有 Hook 的注冊與排序"""
@@ -115,15 +124,6 @@ class _ChainedObserver(StreamObserver):
             except Exception:
                 logger.exception("Hook {} stream observer {}() error", name, method)
 
-
-from .builtin import EmotionHook, LoggingHook, RateLimitHook, TTSHook
-from .memory import (
-    ContextualMemoryStore,
-    InMemoryStore,
-    MemoryHook,
-    MemoryStore,
-    RelationshipMemoryStore,
-)
 
 __all__ = [
     "HookRegistry",

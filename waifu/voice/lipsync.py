@@ -1,5 +1,5 @@
 import math
-from typing import List, Dict
+from typing import Dict, List
 
 
 def build_lipsync_events(text: str, frames: int = 20) -> List[Dict]:

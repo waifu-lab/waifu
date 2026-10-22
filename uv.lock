@@ -1517,7 +1517,7 @@ wheels = [
 
 [[package]]
 name = "waifu-sdk"
-version = "0.1.0a1"
+version = "0.2.0a1"
 source = { editable = "waifu_sdk" }
 dependencies = [
     { name = "hydrogen-ai" },
@@ -1532,7 +1532,7 @@ requires-dist = [
 
 [[package]]
 name = "waifu-types"
-version = "0.1.0a1"
+version = "0.2.0a1"
 source = { editable = "waifu_types" }
 dependencies = [
     { name = "pydantic" },

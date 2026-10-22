@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from shuvi.context import ContextManager
 from shuvi.types import AppMessage
+
 from waifu_types import ConversationMode, HookContext, MessageParts, SystemPromptLayers
 
 if TYPE_CHECKING:
@@ -11,7 +12,6 @@ if TYPE_CHECKING:
 
 from waifu.logger import logger
 from waifu.store import AppPaths
-
 
 _BUILTIN_SYSTEM_PROMPT = """
 ## Identity and Personality

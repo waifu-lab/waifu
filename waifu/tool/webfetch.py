@@ -1,7 +1,6 @@
 import re
 
 import httpx
-
 from hai.tool import Tool
 
 _SCRIPT_STYLE = re.compile(r"<(script|style)[^>]*>.*?</\1>", re.S | re.I)

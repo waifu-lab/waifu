@@ -5,13 +5,16 @@ from rich.text import Text
 
 from waifu.cli._console import console, err_console
 
-
 _COMMANDS = [
     ("init", None, "First-run setup (config + DB)"),
     ("start", None, "Start the waifu server"),
     ("version", None, "Show version"),
     ("config", ["get", "set", "list"], "Read or update settings"),
-    ("character", ["list", "use", "import-card", "import-cards", "sync-card", "sync-cards"], "Manage characters and cards"),
+    (
+        "character",
+        ["list", "use", "import-card", "import-cards", "sync-card", "sync-cards"],
+        "Manage characters and cards",
+    ),
     ("conversations", None, "List recent conversations"),
     ("conversation", ["create", "delete", "search", "compact", "messages"], "Manage conversations"),
     ("skill", ["list", "search", "find", "install", "update", "uninstall"], "Manage skills"),

@@ -1,5 +1,6 @@
-from pathlib import Path
+import asyncio
 import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -87,7 +88,7 @@ def make_character_router(character_service: CharacterService, *, cards_dir: Pat
     ) -> Dict[str, Any]:
         suffix = Path(file.filename or "").suffix or ".bin"
         upload_dir = cards_dir if cards_dir is not None else Path(tempfile.gettempdir())
-        upload_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
         handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, dir=str(upload_dir))
         temp_path = Path(handle.name)
         try:
@@ -103,7 +104,7 @@ def make_character_router(character_service: CharacterService, *, cards_dir: Pat
         finally:
             if not handle.closed:
                 handle.close()
-            temp_path.unlink(missing_ok=True)
+            await asyncio.to_thread(temp_path.unlink, missing_ok=True)
 
     @router.post("/import-cards")
     async def import_cards(body: ImportCardsRequest) -> Dict[str, Any]:

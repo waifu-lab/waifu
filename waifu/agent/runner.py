@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, List, Optional
 from shuvi.agent import Agent
 from shuvi.context import ContextManager
 from shuvi.types import AGENT_OUTCOME, AgentCallbacks, AgentConfig, AgentResult
+
 from waifu_types import Event, HookContext, StreamObserver, StreamTransform
 
 if TYPE_CHECKING:
