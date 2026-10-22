@@ -123,7 +123,9 @@ class ConversationStore:
         return list(
             Conversation.select()
             .where(
-                cast(CharField, Conversation.title).contains(query) | cast(CharField, Conversation.id).in_(matching_ids)
+                cast(CharField, Conversation.id).contains(query)
+                | cast(CharField, Conversation.title).contains(query)
+                | cast(CharField, Conversation.id).in_(matching_ids)
             )
             .order_by(cast(DateTimeField, Conversation.updated_at).desc())
         )

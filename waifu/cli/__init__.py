@@ -16,10 +16,11 @@ _COMMANDS = [
         "Manage characters and cards",
     ),
     ("conversations", None, "List recent conversations"),
-    ("conversation", ["create", "delete", "search", "compact", "messages"], "Manage conversations"),
-    ("skill", ["list", "search", "find", "install", "update", "uninstall"], "Manage skills"),
-    ("mcp", ["list", "install", "uninstall", "search", "find"], "Manage MCP servers"),
+    ("conversation", ["create", "delete", "search", "compact", "messages", "export"], "Manage conversations"),
+    ("skill", ["list", "search", "find", "install", "update", "uninstall", "reload"], "Manage skills"),
+    ("mcp", ["list", "install", "uninstall", "enable", "disable", "search", "find"], "Manage MCP servers"),
     ("cron", ["list", "add", "remove", "run", "enable", "disable", "history"], "Manage cron jobs"),
+    ("completion", ["install", "uninstall", "bash", "zsh", "fish", "powershell"], "Shell completion"),
 ]
 
 
@@ -45,6 +46,12 @@ def _print_help() -> None:
 
 def main() -> None:
     args = sys.argv[1:]
+
+    if args and args[0] == "__complete":
+        from waifu.cli.completion import cmd_complete
+
+        cmd_complete(args[1:])
+        return
 
     if not args or args[0] in ("-h", "--help", "help"):
         _print_help()
@@ -97,6 +104,11 @@ def main() -> None:
         from waifu.cli.cron import cmd_cron
 
         cmd_cron(rest)
+
+    elif cmd == "completion":
+        from waifu.cli.completion import cmd_completion
+
+        cmd_completion(rest)
 
     else:
         err_console.print(f"[red]Unknown command:[/red] {cmd}")

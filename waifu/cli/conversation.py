@@ -56,7 +56,7 @@ def _help() -> None:
     console.print("  [cyan]conversations[/cyan] [green][limit][/green]                  List recent conversations")
     console.print("  [cyan]conversation create[/cyan] [green]<title>[/green]            Create a new conversation")
     console.print("  [cyan]conversation delete[/cyan] [green]<id>[/green]               Delete a conversation")
-    console.print("  [cyan]conversation search[/cyan] [green]<query>[/green]            Search conversations")
+    console.print("  [cyan]conversation search[/cyan] [green]<query>[/green]            Search by id, title or content")
     console.print("  [cyan]conversation compact[/cyan] [green]<id>[/green]          Compact conversation context")
     console.print("  [cyan]conversation messages[/cyan] [green]<id> [limit][/green]  Show messages")
     console.print("  [cyan]conversation export[/cyan] [green]<id> [path][/green]     Export conversation to markdown")
